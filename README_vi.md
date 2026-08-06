@@ -12,7 +12,7 @@ Huong nay phu hop de demo nhanh tren `Raspberry Pi 5 + webcam USB`.
 
 MVP nay cho phep:
 
-- Mo webcam va tim khuon mat trong khung hinh
+- Mo webcam va tim khuon mat trong khung hinhpython3 -m pip install -r requirements.txt
 - Dang ky mot nguoi moi bang cach chup nhieu mau mat
 - Luu vector dac trung cua tung nguoi
 - Nhan dien realtime va hien ten neu so khop
