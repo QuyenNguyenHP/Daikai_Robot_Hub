@@ -27,9 +27,14 @@ RECOGNIZER_MODEL = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Dang ky khuon mat moi tu webcam cho Raspberry Pi 5."
+        description="Dang ky khuon mat moi tu webcam hoac thu muc anh."
     )
     parser.add_argument("--name", required=True, help="Ten nguoi can dang ky.")
+    parser.add_argument(
+        "--image-dir",
+        type=Path,
+        help="Thu muc anh co san. Neu bo qua, chuong trinh se dung webcam.",
+    )
     parser.add_argument("--camera-id", type=int, default=0, help="ID webcam.")
     parser.add_argument(
         "--samples",
@@ -50,7 +55,7 @@ def ensure_models_exist() -> None:
     missing = [path.name for path in (DETECTOR_MODEL, RECOGNIZER_MODEL) if not path.exists()]
     if missing:
         raise FileNotFoundError(
-            "Chua co model ONNX. Hay chay: python3 src/download_models.py\n"
+            "Chua co model ONNX. Hay chay: python3 backend/src/download_models.py\n"
             f"Model thieu: {', '.join(missing)}"
         )
 
@@ -108,8 +113,65 @@ def update_database(person_name: str, features: list[np.ndarray]) -> None:
     save_metadata(metadata)
 
 
+def enroll_from_images(
+    image_dir: Path,
+    person_dir: Path,
+    sample_limit: int,
+    detector: cv2.FaceDetectorYN,
+    recognizer: cv2.FaceRecognizerSF,
+) -> list[np.ndarray]:
+    if not image_dir.is_dir():
+        raise NotADirectoryError(f"Khong tim thay thu muc anh: {image_dir}")
+
+    supported_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    image_paths = sorted(
+        path
+        for path in image_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in supported_extensions
+    )
+    if not image_paths:
+        raise FileNotFoundError(
+            f"Khong co anh JPG, JPEG, PNG, BMP hoac WEBP trong: {image_dir}"
+        )
+
+    collected_features: list[np.ndarray] = []
+    for image_path in image_paths:
+        frame = cv2.imread(str(image_path))
+        if frame is None:
+            print(f"Bo qua anh khong doc duoc: {image_path.name}")
+            continue
+
+        face = detect_largest_face(detector, frame)
+        if face is None:
+            print(f"Bo qua anh khong tim thay khuon mat: {image_path.name}")
+            continue
+
+        collected_features.append(extract_feature(recognizer, frame, face))
+
+        x, y, w, h = face[:4].astype(int)
+        height, width = frame.shape[:2]
+        x1, y1 = max(x, 0), max(y, 0)
+        x2, y2 = min(x + w, width), min(y + h, height)
+        face_img = frame[y1:y2, x1:x2]
+        output_path = person_dir / f"sample_{len(collected_features):02d}.jpg"
+        if face_img.size > 0:
+            cv2.imwrite(str(output_path), face_img)
+
+        print(
+            f"Da xu ly mau {len(collected_features)}/{sample_limit}: "
+            f"{image_path.name}"
+        )
+        if len(collected_features) >= sample_limit:
+            break
+
+    return collected_features
+
+
 def main() -> None:
     args = parse_args()
+    if args.samples < 1:
+        raise ValueError("--samples phai lon hon hoac bang 1.")
+
     ensure_dirs()
     ensure_models_exist()
 
@@ -118,6 +180,26 @@ def main() -> None:
 
     detector = create_detector(str(DETECTOR_MODEL), (640, 480))
     recognizer = create_recognizer(str(RECOGNIZER_MODEL))
+
+    if args.image_dir is not None:
+        collected_features = enroll_from_images(
+            args.image_dir,
+            person_dir,
+            args.samples,
+            detector,
+            recognizer,
+        )
+        if not collected_features:
+            raise RuntimeError(
+                "Khong co anh nao chua khuon mat hop le; du lieu chua duoc cap nhat."
+            )
+        update_database(args.name, collected_features)
+        print(
+            f"Da dang ky xong cho {args.name} bang "
+            f"{len(collected_features)} anh hop le."
+        )
+        return
+
     capture = open_camera(args.camera_id)
 
     if not capture.isOpened():

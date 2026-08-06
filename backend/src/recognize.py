@@ -46,7 +46,7 @@ def ensure_models_exist() -> None:
     missing = [path.name for path in (DETECTOR_MODEL, RECOGNIZER_MODEL) if not path.exists()]
     if missing:
         raise FileNotFoundError(
-            "Chua co model ONNX. Hay chay: python3 src/download_models.py\n"
+            "Chua co model ONNX. Hay chay: python3 backend/src/download_models.py\n"
             f"Model thieu: {', '.join(missing)}"
         )
 

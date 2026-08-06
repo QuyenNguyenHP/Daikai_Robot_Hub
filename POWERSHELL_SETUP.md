@@ -103,24 +103,24 @@ Project can 2 model ONNX de detect va recognize khuon mat.
 Chay:
 
 ```powershell
-py src\download_models.py
+py backend\src\download_models.py
 ```
 
-Sau khi thanh cong, thu muc `models\` se co cac file `.onnx`.
+Sau khi thanh cong, thu muc `backend\models\` se co cac file `.onnx`.
 
 ## 8. Test webcam tren Windows
 
 Nen test camera truoc khi chay enroll hoac recognize:
 
 ```powershell
-py src\test_camera.py --camera-id 0
+py backend\src\test_camera.py --camera-id 0
 ```
 
 Neu ban co nhieu webcam, thu:
 
 ```powershell
-py src\test_camera.py --camera-id 1
-py src\test_camera.py --camera-id 2
+py backend\src\test_camera.py --camera-id 1
+py backend\src\test_camera.py --camera-id 2
 ```
 
 Neu camera mo duoc, mot cua so preview se hien ra.
@@ -141,7 +141,7 @@ data\camera_test\
 Vi du dang ky nguoi ten `an`:
 
 ```powershell
-py src\enroll.py --name an --camera-id 0
+py backend\src\enroll.py --name an --camera-id 0
 ```
 
 Cach dung:
@@ -155,13 +155,13 @@ Mac dinh chuong trinh se thu `15` mau.
 Neu muon doi camera:
 
 ```powershell
-py src\enroll.py --name an --camera-id 1
+py backend\src\enroll.py --name an --camera-id 1
 ```
 
 Neu muon tang so mau:
 
 ```powershell
-py src\enroll.py --name an --samples 25
+py backend\src\enroll.py --name an --samples 25
 ```
 
 ## 10. Chay nhan dien realtime
@@ -169,13 +169,13 @@ py src\enroll.py --name an --samples 25
 Sau khi da dang ky it nhat 1 nguoi:
 
 ```powershell
-py src\recognize.py --camera-id 0
+py backend\src\recognize.py --camera-id 0
 ```
 
 Neu can doi nguong:
 
 ```powershell
-py src\recognize.py --camera-id 0 --threshold 0.50
+py backend\src\recognize.py --camera-id 0 --threshold 0.50
 ```
 
 Goi y:
@@ -193,10 +193,10 @@ py -m venv .venv
 .venv\Scripts\Activate.ps1
 py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
-py src\download_models.py
-py src\test_camera.py --camera-id 0
-py src\enroll.py --name an --camera-id 0
-py src\recognize.py --camera-id 0
+py backend\src\download_models.py
+py backend\src\test_camera.py --camera-id 0
+py backend\src\enroll.py --name an --camera-id 0
+py backend\src\recognize.py --camera-id 0
 ```
 
 ## 12. Loi thuong gap tren Windows

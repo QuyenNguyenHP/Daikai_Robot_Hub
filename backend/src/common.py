@@ -8,8 +8,9 @@ import cv2
 import numpy as np
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-MODELS_DIR = PROJECT_ROOT / "models"
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = BACKEND_ROOT.parent
+MODELS_DIR = BACKEND_ROOT / "models"
 DATA_DIR = PROJECT_ROOT / "data"
 FACES_DIR = DATA_DIR / "faces"
 EMBEDDINGS_PATH = DATA_DIR / "embeddings.npz"

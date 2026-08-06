@@ -93,7 +93,7 @@ De demo nhan dien khuon mat, nen bat dau voi:
 Project da co san file:
 
 ```bash
-python3 src/test_camera.py
+python3 backend/src/test_camera.py
 ```
 
 Script nay se:
@@ -109,25 +109,25 @@ Script nay se:
 ### Test mac dinh
 
 ```bash
-python3 src/test_camera.py
+python3 backend/src/test_camera.py
 ```
 
 ### Test webcam khac
 
 ```bash
-python3 src/test_camera.py --camera-id 1
+python3 backend/src/test_camera.py --camera-id 1
 ```
 
 ### Test do phan giai cu the
 
 ```bash
-python3 src/test_camera.py --width 640 --height 480 --fps 20
+python3 backend/src/test_camera.py --width 640 --height 480 --fps 20
 ```
 
 ### Thu do phan giai cao hon
 
 ```bash
-python3 src/test_camera.py --width 1280 --height 720 --fps 30
+python3 backend/src/test_camera.py --width 1280 --height 720 --fps 30
 ```
 
 Neu thay giat, lag, hoac CPU cao, quay lai `640x480`.
@@ -166,8 +166,8 @@ Sau khi chay script, ban can de y:
 Neu camera mo duoc, hinh ro, FPS on, thi co the chuyen sang chay:
 
 ```bash
-python3 src/enroll.py --name an
-python3 src/recognize.py
+python3 backend/src/enroll.py --name an
+python3 backend/src/recognize.py
 ```
 
 ## 9. Loi thuong gap va cach xu ly
@@ -217,6 +217,6 @@ Huong xu ly:
 1. Kiem tra `/dev/video*`
 2. Chay `v4l2-ctl --list-devices`
 3. Xem format bang `v4l2-ctl -d /dev/video0 --list-formats-ext`
-4. Chay `python3 src/test_camera.py`
+4. Chay `python3 backend/src/test_camera.py`
 5. Chot `camera-id`, `width`, `height`, `fps`
 6. Moi chuyen sang `enroll.py` va `recognize.py`
