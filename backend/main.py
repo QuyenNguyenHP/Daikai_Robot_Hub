@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, StreamingResponse
 
 from backend.face_service import FaceService
+from backend.robot_camera import RobotCameraError, RobotCameraService
 
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -17,7 +19,13 @@ MAX_ENROLL_BYTES = 100 * 1024 * 1024
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.face_service = FaceService()
-    yield
+    app.state.robot_camera = RobotCameraService()
+    if app.state.robot_camera.network_interface:
+        app.state.robot_camera.start()
+    try:
+        yield
+    finally:
+        app.state.robot_camera.stop()
 
 
 app = FastAPI(
@@ -47,6 +55,10 @@ def service(request: Request) -> FaceService:
     return request.app.state.face_service
 
 
+def robot_camera(request: Request) -> RobotCameraService:
+    return request.app.state.robot_camera
+
+
 async def read_image(upload: UploadFile) -> bytes:
     payload = await upload.read(MAX_IMAGE_BYTES + 1)
     if not payload:
@@ -62,7 +74,12 @@ async def read_image(upload: UploadFile) -> bytes:
 @app.get("/api/health")
 def health(request: Request) -> dict[str, object]:
     people = service(request).people()
-    return {"status": "ok", "models_loaded": True, "people_count": len(people)}
+    return {
+        "status": "ok",
+        "models_loaded": True,
+        "people_count": len(people),
+        "robot_camera": robot_camera(request).status(),
+    }
 
 
 @app.get("/api/people")
@@ -84,6 +101,67 @@ async def recognize(
         return service(request).recognize(payload, threshold)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/robot/status")
+def robot_status(request: Request) -> dict[str, object]:
+    return robot_camera(request).status()
+
+
+@app.post("/api/robot/connect")
+def connect_robot(request: Request) -> dict[str, object]:
+    camera = robot_camera(request)
+    try:
+        camera.start()
+    except RobotCameraError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return camera.status()
+
+
+@app.get("/api/robot/snapshot")
+def robot_snapshot(request: Request) -> Response:
+    try:
+        jpeg, sequence = robot_camera(request).snapshot()
+    except RobotCameraError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Frame-Sequence": str(sequence),
+        },
+    )
+
+
+@app.get("/api/robot/stream")
+def robot_stream(request: Request) -> StreamingResponse:
+    camera = robot_camera(request)
+    try:
+        camera.start()
+    except RobotCameraError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return StreamingResponse(
+        camera.mjpeg_stream(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/robot/recognize")
+def recognize_robot_frame(
+    request: Request,
+    threshold: float = 0.45,
+) -> dict[str, object]:
+    if not 0.0 <= threshold <= 1.0:
+        raise HTTPException(status_code=422, detail="threshold must be between 0 and 1")
+    try:
+        jpeg, sequence = robot_camera(request).snapshot()
+        result = service(request).recognize(jpeg, threshold)
+    except RobotCameraError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    result["frame_sequence"] = sequence
+    return result
 
 
 @app.post("/api/enroll")

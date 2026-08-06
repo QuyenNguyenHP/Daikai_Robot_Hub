@@ -89,6 +89,12 @@ class FaceService:
 
     def recognize(self, payload: bytes, threshold: float) -> dict[str, object]:
         frame = self.decode_image(payload)
+        return self.recognize_frame(frame, threshold)
+
+    def recognize_frame(
+        self, frame: np.ndarray, threshold: float
+    ) -> dict[str, object]:
+        """Recognize an already-decoded frame from an upload or live camera."""
         height, width = frame.shape[:2]
 
         with self.lock:

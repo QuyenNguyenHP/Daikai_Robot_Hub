@@ -44,7 +44,9 @@ main { max-width: 1440px; margin: 0 auto; padding: 48px clamp(18px, 4vw, 64px) 7
 .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(290px, .7fr); gap: 20px; }
 .camera-panel { padding: 22px; }
 .camera-stage { aspect-ratio: 16 / 9; position: relative; overflow: hidden; border-radius: 14px; background: #03080f; border: 1px solid rgba(132, 159, 190, .13); }
-.camera-stage video { width: 100%; height: 100%; display: block; object-fit: fill; }
+.camera-stage video, .camera-stage > img { width: 100%; height: 100%; display: block; object-fit: fill; }
+.source-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 14px; color: var(--muted); font-size: 12px; }
+.source-picker select { min-width: 190px; height: 36px; padding: 0 10px; border-radius: 9px; color: #dce6f2; background: #091522; border: 1px solid var(--panel-border); }
 .camera-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); background: radial-gradient(circle, #101f2e 0, #060c14 68%); }
 .camera-placeholder strong { color: #d8e2ef; font-size: 16px; }
 .camera-placeholder span { font-size: 12px; }

@@ -2,6 +2,12 @@ da
 
 # MVP Nhan Dien Khuon Mat Cho Raspberry Pi 5 + Webcam
 
+> Ban web hien ho tro hai nguon camera: webcam cua thiet bi trinh duyet va
+> camera Unitree R1. Chon nguon tai man hinh **Recognize** hoac **Enroll**.
+> De dung robot, cai `unitree_sdk2py`, dat bien moi truong
+> `UNITREE_NETWORK_INTERFACE` (vi du `eth0`), sau do khoi dong backend.
+> Xem huong dan day du trong [`README.md`](README.md).
+
 Tai lieu nay huong dan ban trien khai mot MVP nhan dien khuon mat theo huong:
 
 - `OpenCV YuNet` de phat hien khuon mat

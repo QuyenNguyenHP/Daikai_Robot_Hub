@@ -29,6 +29,32 @@ export function recognizeImage(blob, threshold) {
   return request('/api/recognize', { method: 'POST', body: form })
 }
 
+export function getRobotStatus() {
+  return request('/api/robot/status')
+}
+
+export function connectRobotCamera() {
+  return request('/api/robot/connect', { method: 'POST' })
+}
+
+export function getRobotStreamUrl() {
+  return `${API_URL}/api/robot/stream`
+}
+
+export async function getRobotSnapshot() {
+  const response = await fetch(`${API_URL}/api/robot/snapshot`, { cache: 'no-store' })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.detail || `Robot snapshot failed (${response.status})`)
+  }
+  return response.blob()
+}
+
+export function recognizeRobotFrame(threshold) {
+  const query = new URLSearchParams({ threshold: String(threshold) })
+  return request(`/api/robot/recognize?${query}`, { method: 'POST' })
+}
+
 export function enrollPerson(name, files) {
   const form = new FormData()
   form.append('name', name)

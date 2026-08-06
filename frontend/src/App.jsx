@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { enrollPerson, getHealth, getPeople, recognizeImage } from './api'
+import {
+  connectRobotCamera,
+  enrollPerson,
+  getHealth,
+  getPeople,
+  getRobotSnapshot,
+  getRobotStatus,
+  getRobotStreamUrl,
+  recognizeImage,
+  recognizeRobotFrame,
+} from './api'
 
 function captureFrame(video, maxWidth = 640, quality = 0.8) {
   if (!video?.videoWidth) return Promise.resolve(null)
@@ -91,10 +101,36 @@ function useCamera(videoRef) {
   return { cameraOn, cameraError, startCamera, stopCamera }
 }
 
-function CameraStage({ videoRef, detections = [], cameraOn = false }) {
+async function waitForRobotCamera() {
+  await connectRobotCamera()
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const status = await getRobotStatus()
+    if (status.connected) return
+    if (status.state === 'error') throw new Error(status.error || 'Robot camera failed.')
+    await new Promise((resolve) => window.setTimeout(resolve, 250))
+  }
+  throw new Error('Timed out waiting for the robot camera.')
+}
+
+function SourceSelector({ value, onChange, disabled = false }) {
+  return (
+    <label className="source-picker">
+      <span>Camera source</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        <option value="webcam">Device webcam</option>
+        <option value="robot">Unitree R1 camera</option>
+      </select>
+    </label>
+  )
+}
+
+function CameraStage({ videoRef, detections = [], cameraOn = false, source = 'webcam' }) {
   return (
     <div className="camera-stage">
-      <video ref={videoRef} muted playsInline />
+      {source === 'webcam' && <video ref={videoRef} muted playsInline />}
+      {source === 'robot' && cameraOn && (
+        <img src={getRobotStreamUrl()} alt="Live stream from the Unitree R1 camera" />
+      )}
       <div className="scanline" />
       {detections.map((item, index) => (
         <div
@@ -114,7 +150,7 @@ function CameraStage({ videoRef, detections = [], cameraOn = false }) {
         <div className="camera-placeholder">
           <div className="camera-icon">⌾</div>
           <strong>Camera is offline</strong>
-          <span>Start the camera to begin</span>
+          <span>Start the selected camera to begin</span>
         </div>
       )}
     </div>
@@ -124,22 +160,31 @@ function CameraStage({ videoRef, detections = [], cameraOn = false }) {
 function RecognitionView() {
   const videoRef = useRef(null)
   const requestBusy = useRef(false)
+  const [source, setSource] = useState('webcam')
+  const [robotOn, setRobotOn] = useState(false)
+  const [startingCamera, setStartingCamera] = useState(false)
   const [running, setRunning] = useState(false)
   const [threshold, setThreshold] = useState(0.45)
   const [detections, setDetections] = useState([])
   const [lastScan, setLastScan] = useState(null)
   const [error, setError] = useState('')
   const { cameraOn, cameraError, startCamera, stopCamera } = useCamera(videoRef)
+  const selectedCameraOn = source === 'webcam' ? cameraOn : robotOn
 
   useEffect(() => {
-    if (!running || !cameraOn) return undefined
+    if (!running || !selectedCameraOn) return undefined
     const scan = async () => {
       if (requestBusy.current) return
       requestBusy.current = true
       try {
-        const blob = await captureFrame(videoRef.current)
-        if (!blob) return
-        const result = await recognizeImage(blob, threshold)
+        let result
+        if (source === 'webcam') {
+          const blob = await captureFrame(videoRef.current)
+          if (!blob) return
+          result = await recognizeImage(blob, threshold)
+        } else {
+          result = await recognizeRobotFrame(threshold)
+        }
         const currentDetections = result.detections.map((item) => ({
           ...item,
           imageWidth: result.image.width,
@@ -157,16 +202,39 @@ function RecognitionView() {
     scan()
     const timer = window.setInterval(scan, 300)
     return () => window.clearInterval(timer)
-  }, [running, cameraOn, threshold])
+  }, [running, selectedCameraOn, source, threshold])
 
   const toggleCamera = async () => {
-    if (cameraOn) {
+    if (selectedCameraOn) {
       setRunning(false)
       setDetections([])
-      stopCamera()
-    } else {
-      await startCamera()
+      if (source === 'webcam') stopCamera()
+      else setRobotOn(false)
+      return
     }
+
+    setStartingCamera(true)
+    setError('')
+    try {
+      if (source === 'webcam') await startCamera()
+      else {
+        await waitForRobotCamera()
+        setRobotOn(true)
+      }
+    } catch (startError) {
+      setError(startError.message)
+    } finally {
+      setStartingCamera(false)
+    }
+  }
+
+  const changeSource = (nextSource) => {
+    setRunning(false)
+    setDetections([])
+    if (cameraOn) stopCamera()
+    setRobotOn(false)
+    setSource(nextSource)
+    setError('')
   }
 
   return (
@@ -181,14 +249,15 @@ function RecognitionView() {
             <i /> {running ? 'Scanning' : 'Standby'}
           </span>
         </div>
-        <CameraStage videoRef={videoRef} detections={detections} cameraOn={cameraOn} />
+        <SourceSelector value={source} onChange={changeSource} disabled={startingCamera} />
+        <CameraStage videoRef={videoRef} detections={detections} cameraOn={selectedCameraOn} source={source} />
         <div className="camera-actions">
-          <button className="button secondary" onClick={toggleCamera}>
-            {cameraOn ? 'Stop camera' : 'Start camera'}
+          <button className="button secondary" onClick={toggleCamera} disabled={startingCamera}>
+            {startingCamera ? 'Connecting…' : selectedCameraOn ? 'Stop camera' : 'Start camera'}
           </button>
           <button
             className="button primary"
-            disabled={!cameraOn}
+            disabled={!selectedCameraOn}
             onClick={() => setRunning((value) => !value)}
           >
             {running ? 'Pause recognition' : 'Start recognition'}
@@ -228,11 +297,16 @@ function RecognitionView() {
 function EnrollmentView({ onEnrolled }) {
   const videoRef = useRef(null)
   const filesRef = useRef([])
+  const [source, setSource] = useState('webcam')
+  const [robotOn, setRobotOn] = useState(false)
+  const [startingCamera, setStartingCamera] = useState(false)
+  const [captureError, setCaptureError] = useState('')
   const [name, setName] = useState('')
   const [files, setFiles] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState(null)
   const { cameraOn, cameraError, startCamera, stopCamera } = useCamera(videoRef)
+  const selectedCameraOn = source === 'webcam' ? cameraOn : robotOn
 
   useEffect(() => { filesRef.current = files }, [files])
   useEffect(() => () => filesRef.current.forEach((item) => URL.revokeObjectURL(item.preview)), [])
@@ -246,10 +320,46 @@ function EnrollmentView({ onEnrolled }) {
   }
 
   const takePhoto = async () => {
-    const blob = await captureFrame(videoRef.current, 1280, 0.9)
-    if (!blob || files.length >= 30) return
-    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
-    addFiles([file])
+    try {
+      const blob = source === 'webcam'
+        ? await captureFrame(videoRef.current, 1280, 0.9)
+        : await getRobotSnapshot()
+      if (!blob || files.length >= 30) return
+      const file = new File([blob], `${source}-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      addFiles([file])
+      setCaptureError('')
+    } catch (photoError) {
+      setCaptureError(photoError.message)
+    }
+  }
+
+  const toggleCamera = async () => {
+    if (selectedCameraOn) {
+      if (source === 'webcam') stopCamera()
+      else setRobotOn(false)
+      return
+    }
+
+    setStartingCamera(true)
+    setCaptureError('')
+    try {
+      if (source === 'webcam') await startCamera()
+      else {
+        await waitForRobotCamera()
+        setRobotOn(true)
+      }
+    } catch (startError) {
+      setCaptureError(startError.message)
+    } finally {
+      setStartingCamera(false)
+    }
+  }
+
+  const changeSource = (nextSource) => {
+    if (cameraOn) stopCamera()
+    setRobotOn(false)
+    setSource(nextSource)
+    setCaptureError('')
   }
 
   const removePhoto = (index) => {
@@ -308,12 +418,15 @@ function EnrollmentView({ onEnrolled }) {
 
       <div className="panel capture-panel">
         <div className="panel-heading"><div><p className="eyebrow">CAMERA SAMPLES</p><h2>Capture photos</h2></div></div>
-        <CameraStage videoRef={videoRef} cameraOn={cameraOn} />
+        <SourceSelector value={source} onChange={changeSource} disabled={startingCamera} />
+        <CameraStage videoRef={videoRef} cameraOn={selectedCameraOn} source={source} />
         <div className="camera-actions">
-          <button className="button secondary" type="button" onClick={cameraOn ? stopCamera : startCamera}>{cameraOn ? 'Stop camera' : 'Start camera'}</button>
-          <button className="button primary" type="button" disabled={!cameraOn || files.length >= 30} onClick={takePhoto}>Capture sample</button>
+          <button className="button secondary" type="button" disabled={startingCamera} onClick={toggleCamera}>
+            {startingCamera ? 'Connecting…' : selectedCameraOn ? 'Stop camera' : 'Start camera'}
+          </button>
+          <button className="button primary" type="button" disabled={!selectedCameraOn || files.length >= 30} onClick={takePhoto}>Capture sample</button>
         </div>
-        {cameraError && <p className="error-message">{cameraError}</p>}
+        {(captureError || cameraError) && <p className="error-message">{captureError || cameraError}</p>}
         <div className="tips"><strong>For better recognition</strong><span>Use 10–20 clear photos with small changes in angle, distance and expression. Keep one face per photo.</span></div>
       </div>
     </section>
