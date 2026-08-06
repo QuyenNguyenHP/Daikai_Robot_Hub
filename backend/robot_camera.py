@@ -68,9 +68,9 @@ class RobotCameraService:
         try:
             from unitree_sdk2py.core.channel import ChannelFactoryInitialize
             from unitree_sdk2py.go2.video.video_client import VideoClient
-        except ImportError:
+        except ImportError as exc:
             self._set_error(
-                "unitree_sdk2py is not installed in the backend environment.",
+                f"Unitree SDK could not be imported: {exc}",
                 terminal=True,
             )
             return

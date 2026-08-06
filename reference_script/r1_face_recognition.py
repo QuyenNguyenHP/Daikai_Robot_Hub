@@ -1,8 +1,7 @@
 """Realtime face recognition using the Unitree R1 camera stream.
 
 This script uses the same YuNet/SFace models and ``data/embeddings.npz`` as
-the rest of this project.  Enrol people with ``backend/src/enroll.py`` (or the
-web UI) before running it.
+the rest of this project. Enrol people with the web UI before running it.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.src.common import (  # noqa: E402
+from backend.common import (  # noqa: E402
     EMBEDDINGS_PATH,
     MODELS_DIR,
     cosine_similarity,
@@ -90,8 +89,8 @@ def ensure_required_files() -> None:
         raise FileNotFoundError(
             "Required face-recognition files are missing:\n- "
             + "\n- ".join(missing)
-            + "\nDownload models with: python3 backend/src/download_models.py\n"
-            + "Then enrol a person with: python3 backend/src/enroll.py --name NAME"
+            + "\nDownload models with: python3 -m backend.download_models\n"
+            + "Then enrol a person from the web application."
         )
 
 
@@ -177,8 +176,8 @@ def run(args: argparse.Namespace) -> None:
     if not names:
         raise RuntimeError("No enrolled people were found in data/embeddings.npz.")
 
-    detector = create_detector(str(DETECTOR_MODEL), (640, 480))
-    recognizer = create_recognizer(str(RECOGNIZER_MODEL))
+    detector = create_detector((640, 480))
+    recognizer = create_recognizer()
 
     print(f"Loaded {len(names)} enrolled people: {', '.join(names)}")
     print(f"Connecting to the R1 on interface {args.network_interface}...")

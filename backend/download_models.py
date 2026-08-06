@@ -1,10 +1,10 @@
-from __future__ import annotations
+"""Download the YuNet and SFace ONNX models when they are missing."""
 
 from pathlib import Path
 
 import requests
 
-from common import MODELS_DIR, ensure_dirs
+from backend.common import MODELS_DIR, ensure_data_dirs
 
 
 MODEL_URLS = {
@@ -19,22 +19,22 @@ MODEL_URLS = {
 }
 
 
-def download_file(url: str, output_path: Path) -> None:
+def download(url: str, destination: Path) -> None:
     response = requests.get(url, timeout=60)
     response.raise_for_status()
-    output_path.write_bytes(response.content)
+    destination.write_bytes(response.content)
 
 
 def main() -> None:
-    ensure_dirs()
+    ensure_data_dirs()
     for filename, url in MODEL_URLS.items():
-        output_path = MODELS_DIR / filename
-        if output_path.exists():
-            print(f"[OK] Da co model: {output_path.name}")
+        destination = MODELS_DIR / filename
+        if destination.exists():
+            print(f"Already present: {destination}")
             continue
-        print(f"[DOWNLOADING] {filename}")
-        download_file(url, output_path)
-        print(f"[SAVED] {output_path}")
+        print(f"Downloading: {filename}")
+        download(url, destination)
+        print(f"Saved: {destination}")
 
 
 if __name__ == "__main__":

@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 import cv2
 import numpy as np
 
-from backend.src.common import (
+from backend.common import (
     FACES_DIR,
     MODELS_DIR,
     cosine_similarity,
     create_detector,
     create_recognizer,
-    ensure_dirs,
+    ensure_data_dirs,
     load_embeddings,
     load_metadata,
     save_embeddings,
@@ -29,7 +29,7 @@ ALLOWED_NAME = re.compile(r"^[^/\\\x00]{1,80}$")
 
 class FaceService:
     def __init__(self) -> None:
-        ensure_dirs()
+        ensure_data_dirs()
         missing = [
             path.name
             for path in (DETECTOR_MODEL, RECOGNIZER_MODEL)
@@ -39,11 +39,11 @@ class FaceService:
             raise FileNotFoundError(
                 "Missing ONNX models: "
                 + ", ".join(missing)
-                + ". Run: python3 backend/src/download_models.py"
+                + ". Run: python3 -m backend.download_models"
             )
 
-        self.detector = create_detector(str(DETECTOR_MODEL), (640, 480))
-        self.recognizer = create_recognizer(str(RECOGNIZER_MODEL))
+        self.detector = create_detector((640, 480))
+        self.recognizer = create_recognizer()
         self.lock = threading.RLock()
 
     @staticmethod

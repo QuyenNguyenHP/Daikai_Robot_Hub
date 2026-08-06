@@ -5,41 +5,32 @@ async function request(path, options = {}) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = payload.detail
-    const message =
-      typeof detail === 'string'
-        ? detail
-        : detail?.message || `Request failed (${response.status})`
+    const message = typeof detail === 'string'
+      ? detail
+      : detail?.message || `Request failed (${response.status})`
     throw new Error(message)
   }
   return payload
 }
 
-export function getHealth() {
-  return request('/api/health')
-}
+export const getHealth = () => request('/api/health')
 
-export function getPeople() {
-  return request('/api/people')
-}
+export const getPeople = () => request('/api/people')
 
-export function recognizeImage(blob, threshold) {
+export function recognizeWebcamFrame(blob, threshold) {
   const form = new FormData()
   form.append('image', blob, 'camera-frame.jpg')
   form.append('threshold', String(threshold))
   return request('/api/recognize', { method: 'POST', body: form })
 }
 
-export function getRobotStatus() {
-  return request('/api/robot/status')
-}
+export const getRobotStatus = () => request('/api/robot/status')
 
-export function connectRobotCamera() {
-  return request('/api/robot/connect', { method: 'POST' })
-}
+export const connectRobotCamera = () => (
+  request('/api/robot/connect', { method: 'POST' })
+)
 
-export function getRobotStreamUrl() {
-  return `${API_URL}/api/robot/stream`
-}
+export const getRobotStreamUrl = () => `${API_URL}/api/robot/stream`
 
 export async function getRobotSnapshot() {
   const response = await fetch(`${API_URL}/api/robot/snapshot`, { cache: 'no-store' })

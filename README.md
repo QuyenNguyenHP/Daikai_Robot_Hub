@@ -54,7 +54,7 @@ The YuNet and SFace ONNX files are already stored under `backend/models/`. If
 they are missing, download them with:
 
 ```bash
-python3 backend/src/download_models.py
+python3 -m backend.download_models
 ```
 
 ## Start the application

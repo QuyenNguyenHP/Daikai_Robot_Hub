@@ -1,1 +1,0 @@
-"""Shared face recognition utilities."""
