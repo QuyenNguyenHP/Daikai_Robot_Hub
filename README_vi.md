@@ -93,10 +93,10 @@ Sau khi tai xong, thu muc `models/` se co 2 file `.onnx`.
 
 ## 6. Dang ky khuon mat moi
 
-Vi du dang ky nguoi co ten `an`:
+Vi du dang ky nguoi co ten `an`: (Camera defaut is 0))
 
 ```bash
-python3 src/enroll.py --name an
+python3 src/enroll.py --name an --camera-id 2
 ```
 
 Cach dung:
