@@ -21,6 +21,8 @@ reference_script/  script robot doc lap de test
 ```
 
 Chi tiet tung file Python backend nam tai [`backend/README.md`](backend/README.md).
+Huong dan cho laptop khac trong cung mang truy cap qua Apache2 nam tai
+[`APACHE2_LAN_SETUP_vi.md`](APACHE2_LAN_SETUP_vi.md).
 
 ## Kien truc
 
@@ -37,13 +39,51 @@ khong ket noi truc tiep voi DDS.
 ## Yeu cau
 
 - Python 3.10 khi su dung Unitree SDK2 Python.
-- Node.js 20 tro len.
+- Node.js 20 tro len (khuyen nghi Node.js 22).
 - npm 10 tro len.
 - Unitree SDK2 Python va card mang ket noi voi robot khi dung che do robot.
 - `pico2wave` (uu tien, fallback sang eSpeak) va `ffmpeg` hoac `sox` neu dung
   tinh nang robot noi.
 
 ## Cai dat
+
+Neu may chua co lenh `python3.10` (vi du Debian Trixie/Raspberry Pi OS), hay
+cai Python 3.10 theo buoc 1 trong muc **Cai dat Unitree SDK2 Python** ben duoi
+truoc khi tiep tuc.
+
+### Cai Node.js va npm neu chua co
+
+Kiem tra Node.js va npm:
+
+```bash
+node --version
+npm --version
+```
+
+Neu mot trong hai lenh khong ton tai, cai Node.js 22 bang `nvm`. Cach nay dung
+duoc tren ca Debian va Ubuntu, dong thoi npm se duoc cai kem Node.js:
+
+```bash
+sudo apt update
+sudo apt install -y curl
+
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+command -v nvm
+nvm install 22
+nvm alias default 22
+
+node --version
+npm --version
+```
+
+Lenh `command -v nvm` phai in ra `nvm`. Neu bao `nvm: command not found`, dong
+terminal, mo terminal moi va chay lai cac lenh kiem tra.
+
+### Cai dependency cua backend va frontend
 
 ```bash
 python3.10 -m venv .venv
@@ -89,7 +129,19 @@ Mo `http://localhost:5173`, chon **Device webcam**, sau do bam **Start camera**.
 > python3.10 --version
 > ```
 
-### 1. Cai dat cac goi he thong
+### 1. Cai dat Python 3.10 va cac goi he thong
+
+Kiem tra he dieu hanh dang su dung:
+
+```bash
+cat /etc/os-release
+```
+
+Chon **mot** trong hai cach cai dat sau.
+
+#### Option A - Ubuntu 22.04 LTS
+
+Ubuntu 22.04 cung cap san Python 3.10 trong repository. Cai dat bang `apt`:
 
 ```bash
 cd ~
@@ -103,7 +155,58 @@ sudo apt install -y \
     git \
     cmake \
     build-essential
+
+python3.10 --version
 ```
+
+Neu Ubuntu bao `Unable to locate package python3.10`, khong them repository cua
+Debian vao Ubuntu. Hay dung **Option B** de build Python 3.10 tu source.
+
+#### Option B - Debian Trixie, Raspberry Pi OS hoac Ubuntu khong co Python 3.10
+
+Debian Trixie dung Python 3.13 mac dinh va khong co cac goi `python3.10`,
+`python3.10-venv`, `python3.10-dev` trong repository mac dinh. Cai cac thu vien
+build, sau do build Python 3.10 rieng tu source. Lenh `make altinstall` khong ghi
+de len lenh `python3` cua he thong.
+
+```bash
+cd ~
+
+sudo apt update
+sudo apt install -y \
+    git \
+    cmake \
+    build-essential \
+    wget \
+    xz-utils \
+    libssl-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libncurses-dev \
+    libgdbm-dev \
+    liblzma-dev \
+    libffi-dev \
+    libexpat1-dev \
+    uuid-dev
+
+cd ~
+wget https://www.python.org/ftp/python/3.10.20/Python-3.10.20.tar.xz
+echo "de6517421601e39a9a3bc3e1bc4c7b2f239297423ee05e282598c83ec0647505  Python-3.10.20.tar.xz" \
+    | sha256sum --check
+
+tar -xf Python-3.10.20.tar.xz
+cd Python-3.10.20
+./configure --with-ensurepip=install
+make -j"$(nproc)"
+sudo make altinstall
+
+python3.10 --version
+```
+
+Ket qua mong doi la `Python 3.10.20`. Khong thay doi symlink `python3` cua he
+thong sang Python 3.10.
 
 ### 2. Build Cyclone DDS
 
