@@ -6,9 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from backend.face_service import FaceService
 from backend.robot_camera import RobotCameraError, RobotCameraService
+from backend.robot_speech import (
+    MAX_TEXT_LENGTH,
+    RobotSpeechBusyError,
+    RobotSpeechError,
+    RobotSpeechService,
+)
 
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -20,6 +27,7 @@ MAX_ENROLL_BYTES = 100 * 1024 * 1024
 async def lifespan(app: FastAPI):
     app.state.face_service = FaceService()
     app.state.robot_camera = RobotCameraService()
+    app.state.robot_speech = RobotSpeechService()
     if app.state.robot_camera.network_interface:
         app.state.robot_camera.start()
     try:
@@ -59,6 +67,14 @@ def robot_camera(request: Request) -> RobotCameraService:
     return request.app.state.robot_camera
 
 
+def robot_speech(request: Request) -> RobotSpeechService:
+    return request.app.state.robot_speech
+
+
+class SpeechRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
+
+
 async def read_image(upload: UploadFile) -> bytes:
     payload = await upload.read(MAX_IMAGE_BYTES + 1)
     if not payload:
@@ -79,6 +95,7 @@ def health(request: Request) -> dict[str, object]:
         "models_loaded": True,
         "people_count": len(people),
         "robot_camera": robot_camera(request).status(),
+        "robot_speech": robot_speech(request).status(),
     }
 
 
@@ -162,6 +179,21 @@ def recognize_robot_frame(
         raise HTTPException(status_code=503, detail=str(error)) from error
     result["frame_sequence"] = sequence
     return result
+
+
+@app.get("/api/robot/speech/status")
+def robot_speech_status(request: Request) -> dict[str, object]:
+    return robot_speech(request).status()
+
+
+@app.post("/api/robot/speak")
+def speak_on_robot(request: Request, payload: SpeechRequest) -> dict[str, object]:
+    try:
+        return robot_speech(request).speak(payload.text)
+    except RobotSpeechBusyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotSpeechError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/api/enroll")

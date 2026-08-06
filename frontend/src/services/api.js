@@ -46,6 +46,14 @@ export function recognizeRobotFrame(threshold) {
   return request(`/api/robot/recognize?${query}`, { method: 'POST' })
 }
 
+export function speakOnRobot(text) {
+  return request('/api/robot/speak', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+}
+
 export function enrollPerson(name, files) {
   const form = new FormData()
   form.append('name', name)

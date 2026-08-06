@@ -22,6 +22,7 @@ backend/
 ├── main.py
 ├── face_service.py
 ├── robot_camera.py
+├── robot_speech.py
 ├── common.py
 ├── download_models.py
 ├── models/
@@ -57,8 +58,8 @@ process-level resources.
 ### `main.py`
 
 Defines the FastAPI application and all HTTP endpoints. During application
-startup it creates exactly one `FaceService` and one `RobotCameraService`. On
-shutdown it stops the robot capture thread.
+startup it creates exactly one `FaceService`, `RobotCameraService`, and
+`RobotSpeechService`. On shutdown it stops the robot capture thread.
 
 It also handles:
 
@@ -99,6 +100,16 @@ Owns the Unitree camera connection. `RobotCameraService`:
 
 The delayed Unitree import is intentional: webcam-only mode can run without the
 Unitree SDK installed.
+
+### `robot_speech.py`
+
+Converts English text into audio and streams it through the Unitree speaker. It
+prefers `pico2wave` for local text-to-speech, with `espeak-ng` and `espeak` as
+fallbacks. It uses `ffmpeg` or `sox` to produce the required 16 kHz mono 16-bit
+PCM format.
+
+Only one speech request can play at a time, so manual speech and automatic name
+announcements cannot overlap. Speech text is limited to 200 characters.
 
 ### `common.py`
 
@@ -143,6 +154,8 @@ It is not imported by the running application.
 | `GET`  | `/api/robot/snapshot`  | Return the newest Unitree JPEG             |
 | `GET`  | `/api/robot/stream`    | Return an MJPEG Unitree preview            |
 | `POST` | `/api/robot/recognize` | Recognize the newest Unitree frame         |
+| `GET`  | `/api/robot/speech/status` | Report speech tools and busy state     |
+| `POST` | `/api/robot/speak`     | Convert English text and play it           |
 
 Interactive API documentation is available while the backend runs:
 
@@ -181,6 +194,21 @@ curl -s http://127.0.0.1:8000/api/robot/status | python -m json.tool
 
 A working camera reports `"connected": true` and an increasing
 `frame_sequence`.
+
+Robot speech also requires local TTS and audio conversion commands. On Ubuntu:
+
+```bash
+sudo apt install espeak-ng ffmpeg
+```
+
+Check speech support and send a manual test:
+
+```bash
+curl http://127.0.0.1:8000/api/robot/speech/status
+curl -X POST http://127.0.0.1:8000/api/robot/speak \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Hello from FaceLens"}'
+```
 
 ### CORS
 

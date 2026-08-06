@@ -11,6 +11,7 @@ src/
 │   ├── CameraStage.jsx
 │   ├── DetectionSummary.jsx
 │   ├── PageIntro.jsx
+│   ├── RobotSpeechPanel.jsx
 │   └── ThresholdControl.jsx
 ├── hooks/                      Reusable React state/lifecycle logic
 │   ├── useBrowserCamera.js
@@ -18,7 +19,7 @@ src/
 ├── pages/                      Complete application screens
 │   ├── EnrollmentPage.jsx
 │   ├── PeoplePage.jsx
-│   └── RecognitionPage.jsx
+│   └── FirstPage.jsx
 ├── services/                   Backend and browser-facing operations
 │   ├── api.js
 │   ├── camera.js
@@ -41,7 +42,8 @@ reusable or represents a clear piece of UI.
 Each file represents one navigation screen. Pages combine components, hooks,
 and services:
 
-- `RecognitionPage` controls recognition polling and detection results.
+- `FirstPage` controls recognition polling, detection results, manual robot
+  speech, and automatic recognized-name announcements.
 - `EnrollmentPage` controls sample capture, previews, and submission.
 - `PeoplePage` displays stored identities.
 

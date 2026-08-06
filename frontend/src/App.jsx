@@ -3,7 +3,7 @@ import { AppHeader } from './components/AppHeader'
 import { PageIntro } from './components/PageIntro'
 import { EnrollmentPage } from './pages/EnrollmentPage'
 import { PeoplePage } from './pages/PeoplePage'
-import { RecognitionPage } from './pages/RecognitionPage'
+import { FirstPage } from './pages/FirstPage'
 import { getHealth, getPeople } from './services/api'
 
 
@@ -43,7 +43,7 @@ export default function App() {
             Cannot reach the FastAPI backend: {connectionError}
           </div>
         )}
-        {page === 'recognize' && <RecognitionPage />}
+        {page === 'recognize' && <FirstPage />}
         {page === 'enroll' && <EnrollmentPage onEnrolled={refreshData} />}
         {page === 'people' && <PeoplePage people={people} loading={loadingPeople} />}
       </main>

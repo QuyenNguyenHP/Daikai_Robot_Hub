@@ -8,6 +8,8 @@ FastAPI, React, OpenCV YuNet, and OpenCV SFace. The web interface can use either
 
 The selected camera can be changed from both the **Recognize** and **Enroll**
 screens. Enrolled identities and embeddings are shared by both camera sources.
+The first page can also send typed English speech to the robot and optionally
+announce recognized names when similarity is at least 70%.
 
 ## Architecture
 
@@ -28,6 +30,7 @@ need direct access to Unitree DDS.
 - npm 10+
 - Unitree SDK2 Python on the backend machine (only required for robot mode)
 - A network interface connected to the robot (only required for robot mode)
+- `pico2wave` (preferred, with eSpeak fallback) and `ffmpeg` or `sox` for robot speech
 
 Install the standard dependencies:
 

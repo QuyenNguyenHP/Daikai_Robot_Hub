@@ -6,6 +6,8 @@ Ung dung web ho tro hai nguon camera:
 - **Unitree R1 camera**: camera robot, duoc backend doc qua Unitree SDK2.
 
 Ca hai nguon dung chung YuNet, SFace va co so du lieu khuon mat trong `data/`.
+Trang dau tien cung cho phep nhap cau tieng Anh de robot noi. Nut **Auto name**
+se bat/tat viec robot chao ten nguoi khi do tin cay nhan dien dat tu 70%.
 
 ## Cau truc chinh
 
