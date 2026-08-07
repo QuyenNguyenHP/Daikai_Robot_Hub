@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { CameraSourceSelector } from '../components/CameraSourceSelector'
 import { CameraStage } from '../components/CameraStage'
 import { useCameraSource } from '../hooks/useCameraSource'
 import { enrollPerson, getRobotSnapshot } from '../services/api'
-import { captureVideoFrame } from '../services/camera'
 
 
 export function EnrollmentPage({ onEnrolled }) {
   const videoRef = useRef(null)
   const filesRef = useRef([])
-  const camera = useCameraSource(videoRef)
+  const camera = useCameraSource(videoRef, 'robot')
   const [name, setName] = useState('')
   const [files, setFiles] = useState([])
   const [submitting, setSubmitting] = useState(false)
@@ -37,12 +35,10 @@ export function EnrollmentPage({ onEnrolled }) {
 
   const takePhoto = async () => {
     try {
-      const blob = camera.source === 'webcam'
-        ? await captureVideoFrame(videoRef.current, 1280, 0.9)
-        : await getRobotSnapshot()
+      const blob = await getRobotSnapshot()
       if (!blob || files.length >= 30) return
       addFiles([
-        new File([blob], `${camera.source}-${Date.now()}.jpg`, { type: 'image/jpeg' }),
+        new File([blob], `robot-${Date.now()}.jpg`, { type: 'image/jpeg' }),
       ])
       setCaptureError('')
     } catch (error) {
@@ -54,11 +50,6 @@ export function EnrollmentPage({ onEnrolled }) {
     setCaptureError('')
     if (camera.cameraOn) camera.stopCamera()
     else await camera.startCamera()
-  }
-
-  const changeSource = (nextSource) => {
-    setCaptureError('')
-    camera.changeSource(nextSource)
   }
 
   const removePhoto = (index) => {
@@ -151,15 +142,10 @@ export function EnrollmentPage({ onEnrolled }) {
         <div className="panel-heading">
           <div><p className="eyebrow">CAMERA SAMPLES</p><h2>Capture photos</h2></div>
         </div>
-        <CameraSourceSelector
-          value={camera.source}
-          onChange={changeSource}
-          disabled={camera.starting}
-        />
         <CameraStage
           videoRef={videoRef}
           cameraOn={camera.cameraOn}
-          source={camera.source}
+          source="robot"
         />
         <div className="camera-actions">
           <button

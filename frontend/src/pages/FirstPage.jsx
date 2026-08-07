@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CameraSourceSelector } from '../components/CameraSourceSelector'
+import { BatteryStatus } from '../components/BatteryStatus'
 import { CameraStage } from '../components/CameraStage'
-import { DetectionSummary } from '../components/DetectionSummary'
 import { RobotSpeechPanel } from '../components/RobotSpeechPanel'
-import { ThresholdControl } from '../components/ThresholdControl'
+import { RobotControlPanel } from '../components/RobotControlPanel'
 import { useCameraSource } from '../hooks/useCameraSource'
 import {
   recognizeRobotFrame,
-  recognizeWebcamFrame,
   speakOnRobot,
 } from '../services/api'
-import { captureVideoFrame } from '../services/camera'
 import { addImageDimensions, smoothDetections } from '../services/detections'
 
 
@@ -23,7 +20,7 @@ export function FirstPage() {
   const recognitionBusy = useRef(false)
   const speechRequestBusy = useRef(false)
   const announcementTimes = useRef(new Map())
-  const camera = useCameraSource(videoRef)
+  const camera = useCameraSource(videoRef, 'robot')
   const [running, setRunning] = useState(false)
   const [threshold, setThreshold] = useState(0.45)
   const [detections, setDetections] = useState([])
@@ -82,14 +79,7 @@ export function FirstPage() {
       if (recognitionBusy.current) return
       recognitionBusy.current = true
       try {
-        let result
-        if (camera.source === 'webcam') {
-          const blob = await captureVideoFrame(videoRef.current)
-          if (!blob) return
-          result = await recognizeWebcamFrame(blob, threshold)
-        } else {
-          result = await recognizeRobotFrame(threshold)
-        }
+        const result = await recognizeRobotFrame(threshold)
         if (!active) return
         const current = addImageDimensions(result)
         setDetections((previous) => smoothDetections(previous, current))
@@ -112,7 +102,6 @@ export function FirstPage() {
   }, [
     announceBestDetection,
     camera.cameraOn,
-    camera.source,
     running,
     threshold,
   ])
@@ -128,13 +117,6 @@ export function FirstPage() {
     }
   }
 
-  const changeSource = (nextSource) => {
-    setRunning(false)
-    setDetections([])
-    setScanError('')
-    camera.changeSource(nextSource)
-  }
-
   const toggleAutoSpeech = () => {
     setAutoSpeechEnabled((enabled) => !enabled)
     announcementTimes.current.clear()
@@ -147,65 +129,64 @@ export function FirstPage() {
         <div className="panel camera-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">LIVE INPUT</p>
-              <h2>Recognition stream</h2>
+              <p className="eyebrow">LIVE CAMERA</p>
+              <h2>Face Recognition</h2>
             </div>
-            <span className={`status-pill ${running ? 'live' : ''}`}>
-              <i /> {running ? 'Scanning' : 'Standby'}
-            </span>
+            <div className="camera-header-actions">
+              <span className={`status-pill ${running ? 'live' : ''}`}>
+                <i /> {running ? 'Scanning' : 'Standby'}
+              </span>
+              <button
+                className="button secondary"
+                onClick={toggleCamera}
+                disabled={camera.starting}
+              >
+                {camera.starting
+                  ? 'Connecting…'
+                  : camera.cameraOn ? 'Stop camera' : 'Start camera'}
+              </button>
+              <button
+                className="button primary"
+                disabled={!camera.cameraOn}
+                onClick={() => setRunning((value) => !value)}
+              >
+                {running ? 'Pause recognition' : 'Start recognition'}
+              </button>
+            </div>
           </div>
-          <CameraSourceSelector
-            value={camera.source}
-            onChange={changeSource}
-            disabled={camera.starting}
-          />
+          {(scanError || camera.error) && (
+            <p className="error-message camera-warning">
+              {scanError || camera.error}
+            </p>
+          )}
           <CameraStage
             videoRef={videoRef}
             detections={detections}
             cameraOn={camera.cameraOn}
-            source={camera.source}
+            source="robot"
+            threshold={threshold}
+            lastScan={lastScan}
+            onThresholdChange={setThreshold}
           />
-          <div className="camera-actions">
-            <button
-              className="button secondary"
-              onClick={toggleCamera}
-              disabled={camera.starting}
-            >
-              {camera.starting
-                ? 'Connecting…'
-                : camera.cameraOn ? 'Stop camera' : 'Start camera'}
-            </button>
-            <button
-              className="button primary"
-              disabled={!camera.cameraOn}
-              onClick={() => setRunning((value) => !value)}
-            >
-              {running ? 'Pause recognition' : 'Start recognition'}
-            </button>
-          </div>
-          {(scanError || camera.error) && (
-            <p className="error-message">{scanError || camera.error}</p>
-          )}
         </div>
 
         <aside className="side-stack">
-          <DetectionSummary detections={detections} />
-          <ThresholdControl
-            threshold={threshold}
-            lastScan={lastScan}
-            onChange={setThreshold}
-          />
+          <BatteryStatus />
+          <RobotControlPanel />
         </aside>
+        <div className="panel speech-panel">
+          <RobotSpeechPanel
+            autoEnabled={autoSpeechEnabled}
+            busy={speechBusy}
+            message={speechMessage}
+            lastSpoken={lastSpoken}
+            onSpeak={speak}
+            onToggleAuto={toggleAutoSpeech}
+          />
+        </div>
       </section>
 
-      <RobotSpeechPanel
-        autoEnabled={autoSpeechEnabled}
-        busy={speechBusy}
-        message={speechMessage}
-        lastSpoken={lastSpoken}
-        onSpeak={speak}
-        onToggleAuto={toggleAutoSpeech}
-      />
+
     </div>
   )
 }

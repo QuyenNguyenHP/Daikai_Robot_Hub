@@ -15,8 +15,6 @@ async function request(path, options = {}) {
 
 export const getHealth = () => request('/api/health')
 
-export const getPeople = () => request('/api/people')
-
 export function recognizeWebcamFrame(blob, threshold) {
   const form = new FormData()
   form.append('image', blob, 'camera-frame.jpg')
@@ -25,6 +23,20 @@ export function recognizeWebcamFrame(blob, threshold) {
 }
 
 export const getRobotStatus = () => request('/api/robot/status')
+
+export const getRobotBattery = () => request('/api/robot/battery')
+
+export const getRobotControlStatus = () => request('/api/robot/control/status')
+
+export const getRobotMode = () => request('/api/robot/mode')
+
+export function controlRobot(action) {
+  return request('/api/robot/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+}
 
 export const connectRobotCamera = () => (
   request('/api/robot/connect', { method: 'POST' })

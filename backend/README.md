@@ -18,6 +18,7 @@ with Unitree DDS directly.
 ```text
 backend/
 ├── __init__.py
+├── __main__.py
 ├── app.py
 ├── main.py
 ├── face_service.py
@@ -36,6 +37,19 @@ and camera-test programs duplicated features now provided by the React web
 application and were not imported by the running backend.
 
 ## Every Python script
+
+### `__main__.py`
+
+Starts the API and configures every Unitree service with the network interface
+provided on the command line. From the project root, run:
+
+```bash
+python3 backend eth10
+```
+
+The API listens on `0.0.0.0:8000` by default. Use `--host` or `--port` to
+override either value. The launcher always uses one worker because the Unitree
+DDS clients are shared process-level resources.
 
 ### `__init__.py`
 
@@ -58,8 +72,9 @@ process-level resources.
 ### `main.py`
 
 Defines the FastAPI application and all HTTP endpoints. During application
-startup it creates exactly one `FaceService`, `RobotCameraService`, and
-`RobotSpeechService`. On shutdown it stops the robot capture thread.
+startup it creates exactly one `FaceService`, `RobotCameraService`,
+`RobotBatteryService`, `RobotControlService`, and `RobotSpeechService`. On
+shutdown it stops the robot service threads and sends a final locomotion stop.
 
 It also handles:
 
@@ -111,6 +126,13 @@ PCM format.
 Only one speech request can play at a time, so manual speech and automatic name
 announcements cannot overlap. Speech text is limited to 200 characters.
 
+### `robot_battery.py`
+
+Subscribes to the Unitree `rt/lf/bmsstate` DDS topic and converts raw pack,
+cell, current, temperature, charge, and health fields into frontend-ready
+units. It retains the latest reading so API requests never wait for DDS. Set
+`UNITREE_BATTERY_TOPIC` to override the topic for a different firmware build.
+
 ### `common.py`
 
 Contains small helpers shared by the backend services:
@@ -150,6 +172,10 @@ It is not imported by the running application.
 | `POST` | `/api/recognize`       | Recognize an uploaded webcam/image frame   |
 | `POST` | `/api/enroll`          | Enroll images from webcam, robot, or files |
 | `GET`  | `/api/robot/status`    | Unitree configuration and capture state    |
+| `GET`  | `/api/robot/battery`   | Latest Unitree BMS battery telemetry        |
+| `GET`  | `/api/robot/control/status` | Unitree locomotion-control state       |
+| `GET`  | `/api/robot/mode`      | Current Unitree FSM name and numeric ID     |
+| `POST` | `/api/robot/control`   | Send a bounded locomotion command            |
 | `POST` | `/api/robot/connect`   | Start the shared Unitree client            |
 | `GET`  | `/api/robot/snapshot`  | Return the newest Unitree JPEG             |
 | `GET`  | `/api/robot/stream`    | Return an MJPEG Unitree preview            |

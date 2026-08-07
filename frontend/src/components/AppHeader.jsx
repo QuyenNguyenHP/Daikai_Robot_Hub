@@ -1,7 +1,9 @@
+import drumsLogo from '../../photos/DRUMS_logo.png'
+
+
 const NAV_ITEMS = [
-  ['recognize', 'Recognize'],
+  ['recognize', 'Console'],
   ['enroll', 'Enroll'],
-  ['people', 'People'],
 ]
 
 
@@ -9,8 +11,8 @@ export function AppHeader({ currentPage, health, onNavigate }) {
   return (
     <header className="topbar">
       <button className="brand" onClick={() => onNavigate('recognize')}>
-        <span className="brand-mark">FL</span>
-        <span>FaceLens<small>Recognition console</small></span>
+        <img className="brand-mark" src={drumsLogo} alt="" aria-hidden="true" />
+        <span>DAIKAI<small>ROBOT HUB</small></span>
       </button>
       <nav>
         {NAV_ITEMS.map(([page, label]) => (

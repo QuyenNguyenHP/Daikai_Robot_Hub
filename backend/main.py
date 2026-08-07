@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,14 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.face_service import FaceService
+from backend.robot_battery import RobotBatteryService
 from backend.robot_camera import RobotCameraError, RobotCameraService
+from backend.robot_control import (
+    RobotControlBusyError,
+    RobotControlError,
+    RobotControlService,
+    RobotControlStateError,
+)
 from backend.robot_speech import (
     MAX_TEXT_LENGTH,
     RobotSpeechBusyError,
@@ -27,13 +35,18 @@ MAX_ENROLL_BYTES = 100 * 1024 * 1024
 async def lifespan(app: FastAPI):
     app.state.face_service = FaceService()
     app.state.robot_camera = RobotCameraService()
+    app.state.robot_battery = RobotBatteryService()
+    app.state.robot_control = RobotControlService()
     app.state.robot_speech = RobotSpeechService()
+    app.state.robot_battery.start()
     if app.state.robot_camera.network_interface:
         app.state.robot_camera.start()
     try:
         yield
     finally:
         app.state.robot_camera.stop()
+        app.state.robot_battery.stop()
+        app.state.robot_control.stop()
 
 
 app = FastAPI(
@@ -71,8 +84,30 @@ def robot_speech(request: Request) -> RobotSpeechService:
     return request.app.state.robot_speech
 
 
+def robot_battery(request: Request) -> RobotBatteryService:
+    return request.app.state.robot_battery
+
+
+def robot_control(request: Request) -> RobotControlService:
+    return request.app.state.robot_control
+
+
 class SpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
+
+
+class ControlRequest(BaseModel):
+    action: Literal[
+        "enable",
+        "disable",
+        "forward",
+        "backward",
+        "left",
+        "right",
+        "turn_left",
+        "turn_right",
+        "stop",
+    ]
 
 
 async def read_image(upload: UploadFile) -> bytes:
@@ -95,6 +130,8 @@ def health(request: Request) -> dict[str, object]:
         "models_loaded": True,
         "people_count": len(people),
         "robot_camera": robot_camera(request).status(),
+        "robot_battery": robot_battery(request).status(),
+        "robot_control": robot_control(request).status(),
         "robot_speech": robot_speech(request).status(),
     }
 
@@ -125,9 +162,40 @@ def robot_status(request: Request) -> dict[str, object]:
     return robot_camera(request).status()
 
 
+@app.get("/api/robot/battery")
+def robot_battery_status(request: Request) -> dict[str, object]:
+    return robot_battery(request).status()
+
+
+@app.get("/api/robot/control/status")
+def robot_control_status(request: Request) -> dict[str, object]:
+    return robot_control(request).status()
+
+
+@app.get("/api/robot/mode")
+def robot_mode(request: Request) -> dict[str, object]:
+    try:
+        return robot_control(request).mode()
+    except RobotControlBusyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotControlError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/robot/control")
+def control_robot(request: Request, payload: ControlRequest) -> dict[str, object]:
+    try:
+        return robot_control(request).execute(payload.action)
+    except (RobotControlBusyError, RobotControlStateError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotControlError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/api/robot/connect")
 def connect_robot(request: Request) -> dict[str, object]:
     camera = robot_camera(request)
+    robot_battery(request).start()
     try:
         camera.start()
     except RobotCameraError as error:

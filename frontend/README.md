@@ -7,18 +7,15 @@ calls can be changed independently.
 src/
 ├── components/                 Reusable visual components
 │   ├── AppHeader.jsx
-│   ├── CameraSourceSelector.jsx
 │   ├── CameraStage.jsx
-│   ├── DetectionSummary.jsx
-│   ├── PageIntro.jsx
+│   ├── RobotControlPanel.jsx
 │   ├── RobotSpeechPanel.jsx
-│   └── ThresholdControl.jsx
+│   └── BatteryStatus.jsx
 ├── hooks/                      Reusable React state/lifecycle logic
 │   ├── useBrowserCamera.js
 │   └── useCameraSource.js
 ├── pages/                      Complete application screens
 │   ├── EnrollmentPage.jsx
-│   ├── PeoplePage.jsx
 │   └── FirstPage.jsx
 ├── services/                   Backend and browser-facing operations
 │   ├── api.js
@@ -45,7 +42,6 @@ and services:
 - `FirstPage` controls recognition polling, detection results, manual robot
   speech, and automatic recognized-name announcements.
 - `EnrollmentPage` controls sample capture, previews, and submission.
-- `PeoplePage` displays stored identities.
 
 ### `hooks/`
 
@@ -68,8 +64,8 @@ not contain raw `fetch` calls.
 
 ### `App.jsx`
 
-`App` only owns state shared across screens: current page, API health, people,
-and backend connection errors. It does not contain camera or recognition logic.
+`App` only owns state shared across screens: current page, API health, and
+backend connection errors. It does not contain camera or recognition logic.
 
 ## Development
 
@@ -96,8 +92,7 @@ npm run build
 
 1. Create `src/pages/NewPage.jsx`.
 2. Add its navigation item to `components/AppHeader.jsx`.
-3. Add its title to `components/PageIntro.jsx`.
-4. Render it conditionally from `App.jsx`.
+3. Render it conditionally from `App.jsx`.
 
 For a larger application, React Router can replace the current small
 state-based navigation without changing the existing page components.

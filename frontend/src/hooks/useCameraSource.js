@@ -3,7 +3,7 @@ import { waitForRobotCamera } from '../services/camera'
 import { useBrowserCamera } from './useBrowserCamera'
 
 
-export function useCameraSource(videoRef) {
+export function useCameraSource(videoRef, initialSource = 'webcam') {
   const {
     cameraOn: browserOn,
     error: browserError,
@@ -11,7 +11,7 @@ export function useCameraSource(videoRef) {
     startCamera: startBrowserCamera,
     stopCamera: stopBrowserCamera,
   } = useBrowserCamera(videoRef)
-  const [source, setSource] = useState('webcam')
+  const [source, setSource] = useState(initialSource)
   const [robotOn, setRobotOn] = useState(false)
   const [starting, setStarting] = useState(false)
   const [sourceError, setSourceError] = useState('')
