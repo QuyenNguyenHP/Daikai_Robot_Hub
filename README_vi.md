@@ -1,67 +1,70 @@
-# FaceLens: Nhan dien khuon mat bang Webcam va Unitree R1
+# Daikai Robot Hub: Face Recognition with Webcam and Unitree R1
 
-FaceLens la ung dung dang ky va nhan dien khuon mat chay local, duoc xay dung
-bang FastAPI, React, OpenCV YuNet va OpenCV SFace. Ung dung ho tro hai nguon
-camera:
+Daikai Robot Hub is a local face enrollment and recognition application built with
+FastAPI, React, OpenCV YuNet, and OpenCV SFace. The application supports two
+camera sources:
 
-- **Device webcam**: webcam cua may dang mo trinh duyet.
-- **Unitree R1 camera**: camera robot, duoc backend doc qua Unitree SDK2.
+- **Device webcam**: the webcam of the machine running the browser.
+- **Unitree R1 camera**: the robot camera, read by the backend through
+  Unitree SDK2.
 
-Ca hai nguon dung chung YuNet, SFace va co so du lieu khuon mat trong `data/`.
-Trang dau tien cung cho phep nhap cau tieng Anh de robot noi. Nut **Auto name**
-se bat/tat viec robot chao ten nguoi khi do tin cay nhan dien dat tu 70%.
+Both sources share the same YuNet, SFace, and face database stored in `data/`.
+The first page also lets you enter an English sentence for the robot to speak.
+The **Auto name** button turns automatic spoken greetings on or off when
+recognition confidence reaches 70% or higher.
 
-## Cau truc chinh
+## Main structure
 
 ```text
-backend/       FastAPI, xu ly khuon mat va camera robot
-frontend/      React, webcam trinh duyet va giao dien
-data/          anh, embeddings va metadata
-reference_script/  script robot doc lap de test
+backend/           FastAPI backend, face processing, and robot camera logic
+frontend/          React frontend and browser camera UI
+data/              images, embeddings, and metadata
+reference_script/  standalone robot test scripts
 ```
 
-Chi tiet tung file Python backend nam tai [`backend/README.md`](backend/README.md).
-Huong dan cho laptop khac trong cung mang truy cap qua Apache2 nam tai
+Details for each backend Python file are in [`backend/README.md`](backend/README.md).
+Instructions for LAN access through Apache2 are in
 [`APACHE2_LAN_SETUP_vi.md`](APACHE2_LAN_SETUP_vi.md).
 
-## Kien truc
+## Architecture
 
 ```text
-Webcam trinh duyet -> Tai anh JPEG --------+
-                                           +-> FastAPI -> YuNet -> SFace
-Unitree R1 -> Unitree SDK -> FastAPI ------+
+Browser webcam -> Upload JPEG image ------+
+                                          +-> FastAPI -> YuNet -> SFace
+Unitree R1 -> Unitree SDK -> FastAPI -----+
 ```
 
-Webcam duoc truy cap bang `navigator.mediaDevices.getUserMedia()`. Camera robot
-duoc mot `VideoClient` dung chung tren backend doc qua Unitree DDS; trinh duyet
-khong ket noi truc tiep voi DDS.
+The browser webcam is accessed through `navigator.mediaDevices.getUserMedia()`.
+The robot camera is read by a shared backend `VideoClient` through Unitree DDS;
+the browser does not connect to DDS directly.
 
-## Yeu cau
+## Requirements
 
-- Python 3.10 khi su dung Unitree SDK2 Python.
-- Node.js 20 tro len (khuyen nghi Node.js 22).
-- npm 10 tro len.
-- Unitree SDK2 Python va card mang ket noi voi robot khi dung che do robot.
-- `pico2wave` (uu tien, fallback sang eSpeak) va `ffmpeg` hoac `sox` neu dung
-  tinh nang robot noi.
+- Python 3.10 when using Unitree SDK2 Python.
+- Node.js 20 or newer, with Node.js 22 recommended.
+- npm 10 or newer.
+- Unitree SDK2 Python and a network interface connected to the robot when using
+  robot mode.
+- `pico2wave` as the preferred TTS engine, with `espeak` fallback, plus
+  `ffmpeg` or `sox` when using robot speech.
 
-## Cai dat
+## Installation
 
-Neu may chua co lenh `python3.10` (vi du Debian Trixie/Raspberry Pi OS), hay
-cai Python 3.10 theo buoc 1 trong muc **Cai dat Unitree SDK2 Python** ben duoi
-truoc khi tiep tuc.
+If the machine does not have `python3.10` yet, for example on Debian Trixie or
+Raspberry Pi OS, install Python 3.10 first using step 1 in
+**Install Unitree SDK2 Python** below before continuing.
 
-### Cai Node.js va npm neu chua co
+### Install Node.js and npm if needed
 
-Kiem tra Node.js va npm:
+Check whether Node.js and npm are already installed:
 
 ```bash
 node --version
 npm --version
 ```
 
-Neu mot trong hai lenh khong ton tai, cai Node.js 22 bang `nvm`. Cach nay dung
-duoc tren ca Debian va Ubuntu, dong thoi npm se duoc cai kem Node.js:
+If one of them is missing, install Node.js 22 using `nvm`. This works on both
+Debian and Ubuntu, and npm is installed together with Node.js:
 
 ```bash
 sudo apt update
@@ -80,10 +83,10 @@ node --version
 npm --version
 ```
 
-Lenh `command -v nvm` phai in ra `nvm`. Neu bao `nvm: command not found`, dong
-terminal, mo terminal moi va chay lai cac lenh kiem tra.
+`command -v nvm` should print `nvm`. If it says `nvm: command not found`, close
+the terminal, open a new one, and run the checks again.
 
-### Cai dependency cua backend va frontend
+### Install backend and frontend dependencies
 
 ```bash
 python3.10 -m venv .venv
@@ -96,15 +99,54 @@ npm install
 cd ..
 ```
 
-Neu hai model trong `backend/models/` bi thieu:
+If the two models in `backend/models/` are missing:
 
 ```bash
 python -m backend.download_models
 ```
 
-## Chay voi webcam
+### Install `pico2wave` for robot speech
 
-Webcam duoc trinh duyet quan ly, backend khong mo `/dev/video*`.
+Robot speech prefers `pico2wave`. If it is not installed yet, install it on
+Debian, Ubuntu, or Raspberry Pi OS with:
+
+```bash
+sudo apt update
+sudo apt install -y libttspico-utils
+```
+
+Check that the command is available:
+
+```bash
+which pico2wave
+pico2wave --help
+```
+
+To let the backend convert audio for robot playback, also install one of:
+
+```bash
+sudo apt install -y ffmpeg
+```
+
+or:
+
+```bash
+sudo apt install -y sox
+```
+
+Quick `pico2wave` test:
+
+```bash
+pico2wave -l=en-US -w /tmp/pico-test.wav "Hello from Daikai Robot Hub"
+ls -lh /tmp/pico-test.wav
+```
+
+If the WAV file is created successfully, text-to-speech is ready for backend
+use.
+
+## Run with a webcam
+
+The browser manages the webcam, and the backend never opens `/dev/video*`.
 
 Terminal 1:
 
@@ -119,29 +161,31 @@ cd frontend
 npm run dev
 ```
 
-Mo `http://localhost:5173`, chon **Device webcam**, sau do bam **Start camera**.
+Open `http://localhost:5173`, choose **Device webcam**, then click
+**Start camera**.
 
-## Cai dat Unitree SDK2 Python
+## Install Unitree SDK2 Python
 
-> **Yeu cau:** su dung **Python 3.10**. Kiem tra phien ban truoc khi cai dat:
+> **Requirement:** use **Python 3.10**. Check the version before installing:
 >
 > ```bash
 > python3.10 --version
 > ```
 
-### 1. Cai dat Python 3.10 va cac goi he thong
+### 1. Install Python 3.10 and system packages
 
-Kiem tra he dieu hanh dang su dung:
+Check the operating system:
 
 ```bash
 cat /etc/os-release
 ```
 
-Chon **mot** trong hai cach cai dat sau.
+Choose **one** of the following installation paths.
 
 #### Option A - Ubuntu 22.04 LTS
 
-Ubuntu 22.04 cung cap san Python 3.10 trong repository. Cai dat bang `apt`:
+Ubuntu 22.04 already provides Python 3.10 in the repository. Install it with
+`apt`:
 
 ```bash
 cd ~
@@ -159,15 +203,15 @@ sudo apt install -y \
 python3.10 --version
 ```
 
-Neu Ubuntu bao `Unable to locate package python3.10`, khong them repository cua
-Debian vao Ubuntu. Hay dung **Option B** de build Python 3.10 tu source.
+If Ubuntu reports `Unable to locate package python3.10`, do not add Debian
+repositories to Ubuntu. Use **Option B** and build Python 3.10 from source.
 
-#### Option B - Debian Trixie, Raspberry Pi OS hoac Ubuntu khong co Python 3.10
+#### Option B - Debian Trixie, Raspberry Pi OS, or Ubuntu without Python 3.10
 
-Debian Trixie dung Python 3.13 mac dinh va khong co cac goi `python3.10`,
-`python3.10-venv`, `python3.10-dev` trong repository mac dinh. Cai cac thu vien
-build, sau do build Python 3.10 rieng tu source. Lenh `make altinstall` khong ghi
-de len lenh `python3` cua he thong.
+Debian Trixie uses Python 3.13 by default and does not include
+`python3.10`, `python3.10-venv`, or `python3.10-dev` in the default
+repository. Install the build dependencies and build a separate Python 3.10
+from source. `make altinstall` does not overwrite the system `python3`.
 
 ```bash
 cd ~
@@ -205,8 +249,8 @@ sudo make altinstall
 python3.10 --version
 ```
 
-Ket qua mong doi la `Python 3.10.20`. Khong thay doi symlink `python3` cua he
-thong sang Python 3.10.
+The expected result is `Python 3.10.20`. Do not change the system `python3`
+symlink to Python 3.10.
 
 ### 2. Build Cyclone DDS
 
@@ -227,7 +271,7 @@ cmake .. \
 cmake --build . --target install -j"$(nproc)"
 ```
 
-### 3. Tai Unitree SDK2 Python
+### 3. Download Unitree SDK2 Python
 
 ```bash
 cd ~
@@ -238,37 +282,37 @@ git clone \
 cd ~/unitree_sdk2_python
 ```
 
-### 4. Tao va kich hoat moi truong ao Python 3.10
+### 4. Create and activate the Python 3.10 virtual environment
 
-Tao `.venv` ngay trong thu muc du an Unitree SDK2 Python:
+Create `.venv` directly inside the Unitree SDK2 Python project:
 
 ```bash
 python3.10 -m venv .venv
 source .venv/bin/activate
 ```
 
-Moi truong ao duoc tao tai:
+The virtual environment is created at:
 
 ```text
 ~/unitree_sdk2_python/.venv
 ```
 
-Sau khi kich hoat, terminal se hien thi tuong tu:
+After activation, the terminal should look similar to:
 
 ```text
 (.venv) user@computer:~/unitree_sdk2_python$
 ```
 
-Xac nhan `.venv` dang dung Python 3.10, sau do nang cap cac cong cu cai dat:
+Confirm that `.venv` uses Python 3.10, then upgrade the install tools:
 
 ```bash
 python --version
 python -m pip install --upgrade pip setuptools wheel
 ```
 
-### 5. Khai bao duong dan Cyclone DDS
+### 5. Export Cyclone DDS paths
 
-Chay cac lenh sau trong terminal dang kich hoat `.venv`:
+Run these commands in the terminal where `.venv` is active:
 
 ```bash
 export CYCLONEDDS_HOME="$HOME/cyclonedds/install"
@@ -276,42 +320,42 @@ export CMAKE_PREFIX_PATH="$CYCLONEDDS_HOME:$CMAKE_PREFIX_PATH"
 export LD_LIBRARY_PATH="$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH"
 ```
 
-### 6. Cai dat Unitree SDK2 Python
+### 6. Install Unitree SDK2 Python
 
-Tu thu muc `~/unitree_sdk2_python`, chay:
+From `~/unitree_sdk2_python`, run:
 
 ```bash
 python -m pip install -e .
 ```
 
-Kiem tra SDK da duoc cai dat thanh cong:
+Check that the SDK was installed successfully:
 
 ```bash
 python -c "from unitree_sdk2py.go2.video.video_client import VideoClient; print('Unitree SDK2 Python OK')"
 ```
 
-De chay camera robot, backend FaceLens va Unitree SDK2 phai nam trong cung mot
-moi truong Python. Khi `.venv` cua Unitree van dang duoc kich hoat, cai them cac
-dependency cua FaceLens:
+To run the robot camera, the Daikai Robot Hub backend and Unitree SDK2 must live in the
+same Python environment. While the Unitree `.venv` is still active, install the
+Daikai Robot Hub dependencies as well:
 
 ```bash
 cd /home/r1-edu/Documents/Facial-Reconigtion
 python -m pip install -r requirements.txt
 ```
 
-Moi lan mo terminal moi, can kich hoat lai `.venv` va khai bao cac bien moi
-truong Cyclone DDS truoc khi chay ung dung.
+Every time you open a new terminal, activate `.venv` again and export the
+Cyclone DDS environment variables before starting the app.
 
-## Chay voi camera Unitree R1
+## Run with the Unitree R1 camera
 
-Tim ten card mang dang ket noi voi robot:
+Find the network interface connected to the robot:
 
 ```bash
 ip link
 ```
 
-Kich hoat moi truong da cai Unitree SDK2, khai bao Cyclone DDS va card mang,
-sau do khoi dong backend:
+Activate the environment where Unitree SDK2 was installed, export Cyclone DDS
+and the network interface, then start the backend:
 
 ```bash
 source ~/unitree_sdk2_python/.venv/bin/activate
@@ -325,17 +369,17 @@ cd /home/r1-edu/Documents/Facial-Reconigtion
 python backend/app.py
 ```
 
-Thay `enxa0cec86d95d6` bang ten card mang tim duoc tu `ip link`. Khong chay
-nhieu Uvicorn worker trong che do robot vi Unitree DDS va camera client la tai
-nguyen dung chung trong mot process.
+Replace `enxa0cec86d95d6` with the interface name found from `ip link`. Do not
+run multiple Uvicorn workers in robot mode because Unitree DDS and the camera
+client are shared resources inside one process.
 
-Kiem tra camera:
+Check the camera:
 
 ```bash
 curl -s http://127.0.0.1:8000/api/robot/status | python3 -m json.tool
 ```
 
-Ket noi dung se co:
+A successful connection looks like:
 
 ```json
 {
@@ -346,55 +390,55 @@ Ket noi dung se co:
 }
 ```
 
-Sau do tai giao dien chon **Unitree R1 camera** va bam **Start camera**.
+Then choose **Unitree R1 camera** in the UI and click **Start camera**.
 
 ## Robot API
 
-Backend cung cap cac endpoint sau:
+The backend provides these endpoints:
 
-| Endpoint                                     | Chuc nang                                  |
-| -------------------------------------------- | ------------------------------------------ |
-| `GET /api/robot/status`                    | Xem cau hinh va trang thai ket noi camera  |
-| `POST /api/robot/connect`                  | Khoi dong Unitree camera client dung chung |
-| `GET /api/robot/snapshot`                  | Lay anh JPEG moi nhat tu robot             |
-| `GET /api/robot/stream`                    | Xem luong MJPEG truc tiep                  |
-| `POST /api/robot/recognize?threshold=0.45` | Nhan dien khuon mat trong frame moi nhat   |
+| Endpoint                                     | Purpose                                   |
+| -------------------------------------------- | ----------------------------------------- |
+| `GET /api/robot/status`                      | View robot camera configuration and state |
+| `POST /api/robot/connect`                    | Start the shared Unitree camera client    |
+| `GET /api/robot/snapshot`                    | Get the newest robot JPEG                 |
+| `GET /api/robot/stream`                      | View the live MJPEG stream                |
+| `POST /api/robot/recognize?threshold=0.45`   | Recognize faces in the newest frame       |
 
-Nhung endpoint upload anh ban dau van duoc giu nguyen, nen che do webcam va cac
-API client ben ngoai van tuong thich.
+The original image-upload endpoints are still available, so webcam mode and
+external API clients remain compatible.
 
-## Dang ky khuon mat
+## Face enrollment
 
-1. Mo man hinh **Enroll**.
-2. Nhap ten nguoi.
-3. Chon webcam hoac camera robot.
-4. Chup 10-20 anh ro, thay doi nhe goc mat va bieu cam.
-5. Bam **Create face profile**.
+1. Open the **Enroll** screen.
+2. Enter the person's name.
+3. Choose the webcam or robot camera.
+4. Capture 10-20 clear images with slight pose and expression changes.
+5. Click **Create face profile**.
 
-Co the tai anh JPG, PNG hoac WebP va ket hop chung voi cac mau chup tu camera.
-Anh va vector duoc luu vao:
+You can upload JPG, PNG, or WebP files and mix them with samples captured from
+the camera. Images and vectors are stored in:
 
 ```text
-data/faces/<ten>/
+data/faces/<name>/
 data/embeddings.npz
 data/metadata.json
 ```
 
-## Nhan dien
+## Recognition
 
-1. Mo man hinh **Recognize**.
-2. Chon nguon camera.
-3. Bam **Start camera**.
-4. Bam **Start recognition**.
+1. Open the **Recognize** screen.
+2. Choose the camera source.
+3. Click **Start camera**.
+4. Click **Start recognition**.
 
-Nguong mac dinh la `0.45`. Tang nguong de giam nhan nham; giam nguong neu he
-thong qua kho nhan ra nguoi da dang ky.
+The default threshold is `0.45`. Raise it to reduce false positives, or lower
+it if the system struggles to recognize already enrolled people.
 
-## Loi thuong gap
+## Common issues
 
-### `unitree_sdk2py` khong import duoc
+### `unitree_sdk2py` cannot be imported
 
-Kiem tra dung Python environment:
+Check that you are using the correct Python environment:
 
 ```bash
 which python
@@ -402,32 +446,32 @@ python --version
 python -c "from unitree_sdk2py.go2.video.video_client import VideoClient; print('OK')"
 ```
 
-Duong dan tu `which python` phai tro den
-`~/unitree_sdk2_python/.venv/bin/python` khi chay camera robot.
+`which python` should point to `~/unitree_sdk2_python/.venv/bin/python` when
+running the robot camera mode.
 
-### Robot `not_configured`
+### Robot state is `not_configured`
 
-Dat bien moi truong truoc khi khoi dong backend:
+Set the environment variable before starting the backend:
 
 ```bash
 export UNITREE_NETWORK_INTERFACE=enxa0cec86d95d6
 ```
 
-### Frontend o may khac
+### Frontend on another machine
 
-Dat dia chi backend truoc khi khoi dong Vite:
+Set the backend address before starting Vite:
 
 ```bash
 export VITE_API_URL=http://BACKEND_IP:8000
 ```
 
-Neu can, mo CORS tren backend:
+If needed, open CORS on the backend:
 
 ```bash
 export FR_CORS_ORIGINS=http://FRONTEND_IP:5173
 ```
 
-### Webcam bi tu choi
+### Webcam access is denied
 
-Cho phep camera trong trinh duyet. `getUserMedia()` can `localhost` hoac HTTPS
-khi ung dung khong chay tren may local.
+Allow camera access in the browser. `getUserMedia()` requires `localhost` or
+HTTPS when the application is not running on the local machine.

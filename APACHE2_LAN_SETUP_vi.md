@@ -1,86 +1,132 @@
-# Truy cap FaceLens tu laptop trong cung mang bang Apache2
+# Deploy Daikai Robot Hub on Raspberry Pi and Access It from Other LAN Devices
 
-Tai lieu nay huong dan chay backend va frontend FaceLens tren Raspberry Pi, sau
-do truy cap ung dung tu mot laptop trong cung mang LAN/Wi-Fi.
+This guide explains how to deploy **both the backend and frontend on a
+Raspberry Pi**, then access the application from:
 
-Kien truc sau khi cai dat:
+- the Raspberry Pi itself;
+- another laptop on the same `10.0.0.xxx` network;
+- other devices on the same LAN when allowed.
+
+The target setup is:
 
 ```text
-Laptop -> http://IP_CUA_PI:80 -> Apache2 -> frontend React
-                                    |
-                                    +-> /api/* -> FastAPI 127.0.0.1:8000
+Laptop / Pi / other devices
+           |
+           v
+http://10.0.0.242
+           |
+           v
+Apache2 on Raspberry Pi
+   |                    |
+   |                    +-> built React frontend
+   |
+   +-> /api/* -> FastAPI on 127.0.0.1:8000
 ```
 
-Apache2 phuc vu frontend da build va reverse proxy `/api/` den backend. Khong
-can mo cong `5173` hoac `8000` cho laptop.
+With this layout:
 
-## 1. Tim dia chi IP cua Raspberry Pi
+- the backend runs only on the Pi;
+- the frontend is also served by the Pi;
+- other laptops only need a browser pointed at the Pi IP;
+- you do not need to open port `5173` for Vite;
+- you do not need to expose backend port `8000` directly to the LAN.
 
-Tren Pi, chay:
+The examples below assume the Raspberry Pi IP is `10.0.0.242`. Replace it with
+the actual Pi IP if yours is different.
+
+## 1. Confirm the Pi and laptop are on the same network
+
+On the Raspberry Pi:
 
 ```bash
 hostname -I
+ip addr
 ```
 
-Vi du Pi co dia chi `192.168.1.50`. Hay thay dia chi nay bang IP thuc te trong
-tat ca lenh ben duoi.
+You should see an address in the `10.0.0.xxx` range, for example:
 
-Nen dat DHCP reservation tren router de Pi luon nhan cung mot dia chi IP. Pi va
-laptop phai ket noi cung mang, va router khong duoc bat AP/client isolation.
+```text
+10.0.0.242
+```
 
-## 2. Cai Apache2
+On a Windows laptop, you can check with:
+
+```powershell
+ipconfig
+ping 10.0.0.242
+```
+
+If `ping` fails, common causes are:
+
+- the Pi and laptop are not on the same Wi-Fi or LAN;
+- the router has AP isolation or client isolation enabled;
+- a firewall is blocking the traffic;
+- the Pi IP address has changed.
+
+Recommended:
+
+- configure a DHCP reservation on the router so the Pi keeps a stable IP such
+  as `10.0.0.242`;
+- if available, you can also use a local hostname such as `facelens-pi.local`,
+  but IP is usually the most reliable way to test first.
+
+## 2. Install Apache2 on the Pi
 
 ```bash
 sudo apt update
 sudo apt install -y apache2
 sudo a2enmod proxy proxy_http rewrite headers
 sudo systemctl enable --now apache2
-```
-
-Kiem tra Apache:
-
-```bash
 sudo systemctl status apache2 --no-pager
 ```
 
-## 3. Build frontend cho dia chi cua Pi
+If Apache shows `active (running)`, that part is ready.
 
-Vite dua `VITE_API_URL` vao frontend tai thoi diem build. Chay tren Pi:
+## 3. Install dependencies and build the frontend on the Pi
+
+The frontend is built once, then Apache serves the static files from `dist/`.
 
 ```bash
-cd ~/Facial-Reconigtion/frontend
+cd /home/r1-edu/Documents/Facial-Reconigtion/frontend
 npm install
-VITE_API_URL="http://192.168.18.50" npm run build
+VITE_API_URL="http://10.0.0.242" npm run build
 ```
 
-Thu muc ket qua la `frontend/dist/`. Copy noi dung nay vao thu muc Apache:
+After the build completes, copy the frontend files into the Apache web root:
 
 ```bash
 sudo install -d -m 0755 /var/www/facelens
 sudo cp -a dist/. /var/www/facelens/
 ```
 
-Neu IP cua Pi thay doi, can build lai frontend voi `VITE_API_URL` moi va copy
-lai thu muc `dist/`.
+Important notes:
 
-## 4. Cau hinh Apache2
+- in the current code, `VITE_API_URL` is embedded into the frontend at build
+  time;
+- if the Pi IP changes from `10.0.0.242` to something else, rebuild the
+  frontend;
+- when opened from a laptop, the frontend still calls the API using the
+  address baked into the build.
 
-Tao file cau hinh:
+## 4. Configure Apache as a reverse proxy on the Pi
+
+Create the config file:
 
 ```bash
 sudo nano /etc/apache2/sites-available/facelens.conf
 ```
 
-Dan noi dung sau, thay `192.168.1.50` bang IP cua Pi:
+Suggested content:
 
 ```apache
 <VirtualHost *:80>
-    ServerName 192.168.1.50
+    ServerName 10.0.0.242
     DocumentRoot /var/www/facelens
 
     ProxyRequests Off
     ProxyPreserveHost On
     ProxyTimeout 600
+
     ProxyPass        /api/ http://127.0.0.1:8000/api/
     ProxyPassReverse /api/ http://127.0.0.1:8000/api/
 
@@ -101,7 +147,7 @@ Dan noi dung sau, thay `192.168.1.50` bang IP cua Pi:
 </VirtualHost>
 ```
 
-Kich hoat website va kiem tra cau hinh:
+Enable the site:
 
 ```bash
 sudo a2dissite 000-default.conf
@@ -110,12 +156,17 @@ sudo apache2ctl configtest
 sudo systemctl reload apache2
 ```
 
-`apache2ctl configtest` phai tra ve `Syntax OK` truoc khi reload.
+`sudo apache2ctl configtest` should report:
 
-## 5. Chay backend tren Pi
+```text
+Syntax OK
+```
 
-Backend va Unitree SDK2 phai dung cung mot Python environment. Neu dung camera
-Unitree R1:
+## 5. Start the FastAPI backend on the Pi
+
+There are two common cases.
+
+### Option A: Use Unitree SDK2 and the robot camera
 
 ```bash
 source ~/unitree_sdk2_python/.venv/bin/activate
@@ -123,16 +174,21 @@ source ~/unitree_sdk2_python/.venv/bin/activate
 export CYCLONEDDS_HOME="$HOME/cyclonedds/install"
 export CMAKE_PREFIX_PATH="$CYCLONEDDS_HOME:$CMAKE_PREFIX_PATH"
 export LD_LIBRARY_PATH="$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH"
-export UNITREE_NETWORK_INTERFACE=enxa0cec86d95d6
+export UNITREE_NETWORK_INTERFACE=eth0
 
-cd /home/r1-edu/Documents/Facial-Reconigtion
+cd ~/Facial-Reconigtion
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Thay `enxa0cec86d95d6` bang card mang ket noi voi robot. Khong dung nhieu
-Uvicorn worker trong che do Unitree.
+If you prefer to use the project launcher that accepts the robot interface as a
+positional argument, this also works:
 
-Neu chi dung webcam va `.venv` cua FaceLens:
+```bash
+cd ~/Facial-Reconigtion
+python3 backend eth0 --host 127.0.0.1 --port 8000
+```
+
+### Option B: Use only a normal webcam and no Unitree connection
 
 ```bash
 cd /home/r1-edu/Documents/Facial-Reconigtion
@@ -140,71 +196,156 @@ source .venv/bin/activate
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Khong can chay `npm run dev`: Apache dang phuc vu frontend tu
-`/var/www/facelens`.
+Important notes:
 
-## 6. Mo firewall neu dang dung UFW
+- the backend should bind to `127.0.0.1` because Apache proxies to it locally;
+- laptops on the LAN should **not** access `http://10.0.0.242:8000` directly;
+- laptops should open only `http://10.0.0.242`;
+- you do not need `npm run dev` on the Pi or laptop after deploying with
+  Apache.
 
-Chi mo cong Apache, khong can mo cong backend `8000`:
+## 6. Start the backend automatically after reboot
+
+If you want the backend to be available right after a Pi reboot, create a
+`systemd` service. For example:
+
+```bash
+sudo nano /etc/systemd/system/facelens-backend.service
+```
+
+Example service file for the project `.venv` case:
+
+```ini
+[Unit]
+Description=Daikai Robot Hub FastAPI backend
+After=network.target
+
+[Service]
+User=r1-edu
+WorkingDirectory=/home/r1-edu/Documents/Facial-Reconigtion
+Environment="PATH=/home/r1-edu/Documents/Facial-Reconigtion/.venv/bin"
+ExecStart=/home/r1-edu/Documents/Facial-Reconigtion/.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now facelens-backend
+sudo systemctl status facelens-backend --no-pager
+```
+
+If you use the Unitree SDK2 environment instead, update `Environment=` and
+`ExecStart=` to match that environment path.
+
+## 7. Open the firewall if needed
+
+If the Pi uses UFW:
 
 ```bash
 sudo ufw allow 80/tcp
 sudo ufw status
 ```
 
-Neu UFW khong duoc cai hoac dang inactive, co the bo qua buoc nay.
+Only port `80` needs to be opened. Backend port `8000` does not need to be
+opened to the LAN.
 
-## 7. Kiem tra tren Pi
+## 8. Test each layer on the Pi
 
-Kiem tra backend truc tiep:
+### Test the backend directly
 
 ```bash
 curl http://127.0.0.1:8000/api/health
 ```
 
-Kiem tra qua Apache:
+### Test Apache proxying to the backend
 
 ```bash
 curl http://127.0.0.1/api/health
 curl -I http://127.0.0.1/
 ```
 
-Neu ca ba lenh thanh cong, mo trinh duyet tren laptop va truy cap:
+### Test from a laptop on the same LAN
+
+On the Windows laptop:
+
+```powershell
+ping 10.0.0.242
+```
+
+Then open the browser at:
 
 ```text
-http://192.168.1.50
+http://10.0.0.242
 ```
 
-## 8. Luu y ve webcam cua laptop
+If you want a quick command-line test from the laptop:
 
-Che do **Unitree R1 camera**, xem giao dien va upload file co the dung qua HTTP
-trong LAN. Tuy nhien, trinh duyet chi cho phep `getUserMedia()` truy cap webcam
-trong secure context. `http://localhost` duoc chap nhan, nhung
-`http://192.168.1.50` thuong khong duoc chap nhan.
+```powershell
+curl http://10.0.0.242/api/health
+```
 
-Neu can dung **Device webcam** cua laptop, phai cau hinh HTTPS tren Apache voi
-chung chi duoc laptop tin cay. Chung chi self-signed ma trinh duyet chua trust
-van co the lam webcam bi chan. Khi chuyen sang HTTPS, build lai frontend bang
-URL HTTPS:
+If that returns the health JSON, the laptop can reach the backend through
+Apache on the Pi.
+
+## 9. Expected LAN usage flow
+
+After deployment:
+
+1. The backend runs on the Pi.
+2. Apache runs on the Pi.
+3. The built frontend lives in `/var/www/facelens`.
+4. Another laptop only needs to open `http://10.0.0.242`.
+5. Every `/api/...` request is forwarded by Apache to the backend at
+   `127.0.0.1:8000`.
+
+In short:
+
+- the Pi is the server;
+- the other laptop is the client;
+- any device on the same `10.0.0.xxx` network can access it when allowed.
+
+## 10. Webcam notes for another laptop
+
+If you open the site from another laptop using:
+
+```text
+http://10.0.0.242
+```
+
+the browser will often **not allow** `getUserMedia()` access to the laptop's
+local webcam, because this is not a secure context. That means:
+
+- file upload mode still works;
+- the Unitree robot stream still works;
+- the laptop's local webcam may be blocked if you use plain HTTP only.
+
+If you want another laptop to use its **local browser webcam**, switch Apache
+to HTTPS and use a certificate trusted by that laptop.
+
+## 11. Update the frontend after code changes
+
+Whenever you change frontend code, rebuild and copy it again:
 
 ```bash
 cd /home/r1-edu/Documents/Facial-Reconigtion/frontend
-VITE_API_URL="https://TEN_MIEN_HOAC_HOSTNAME" npm run build
-sudo cp -a dist/. /var/www/facelens/
-```
-
-## 9. Cap nhat frontend sau khi sua code
-
-```bash
-cd /home/r1-edu/Documents/Facial-Reconigtion/frontend
-VITE_API_URL="http://192.168.1.50" npm run build
+VITE_API_URL="http://10.0.0.242" npm run build
 sudo cp -a dist/. /var/www/facelens/
 sudo systemctl reload apache2
 ```
 
-## Xu ly loi
+If the Pi IP changes, remember to update `VITE_API_URL`.
 
-### Laptop khong mo duoc website
+## 12. Troubleshooting
+
+### A laptop cannot open `http://10.0.0.242`
+
+On the Pi:
 
 ```bash
 hostname -I
@@ -212,36 +353,45 @@ sudo systemctl status apache2 --no-pager
 sudo ss -ltnp | grep ':80'
 ```
 
-Kiem tra laptop va Pi cung subnet, firewall cho phep TCP 80, va router khong bat
-client isolation.
+Also check:
 
-### Apache tra ve `503 Service Unavailable`
+- whether the Pi is really using IP `10.0.0.242`;
+- whether the Pi and laptop are on the same subnet;
+- whether the router has client isolation enabled;
+- whether UFW or another firewall is blocking port 80.
 
-Backend chua chay hoac khong lang nghe tai `127.0.0.1:8000`:
+### Apache returns `503 Service Unavailable`
+
+This usually means the backend is not running:
 
 ```bash
 curl http://127.0.0.1:8000/api/health
+sudo systemctl status facelens-backend --no-pager
 ```
 
-### Trang hien ra nhung API loi
+If you are not using `systemd`, check the terminal where `uvicorn` should be
+running.
 
-Kiem tra frontend da duoc build bang dung IP cua Pi:
+### The frontend loads but API requests fail
+
+This usually means the frontend was built with the wrong IP:
 
 ```bash
 cd /home/r1-edu/Documents/Facial-Reconigtion/frontend
-VITE_API_URL="http://192.168.1.50" npm run build
+VITE_API_URL="http://10.0.0.242" npm run build
 sudo cp -a dist/. /var/www/facelens/
+sudo systemctl reload apache2
 ```
 
-Xem log Apache va backend:
+Also inspect the Apache log:
 
 ```bash
 sudo tail -f /var/log/apache2/facelens-error.log
 ```
 
-### Refresh trang con bi loi `404`
+### Refreshing a child route returns `404`
 
-Kiem tra module rewrite va site da duoc kich hoat:
+Check that `rewrite` is enabled:
 
 ```bash
 sudo a2enmod rewrite
@@ -249,3 +399,11 @@ sudo a2ensite facelens.conf
 sudo apache2ctl configtest
 sudo systemctl reload apache2
 ```
+
+### The home page loads but another laptop cannot use its webcam
+
+This is a normal HTTP limitation on LAN access. Your options are:
+
+- use image upload instead of browser webcam;
+- use the Unitree camera stream through the backend;
+- or configure HTTPS in Apache with a certificate trusted by the laptop.

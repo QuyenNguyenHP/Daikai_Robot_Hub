@@ -1,281 +1,362 @@
 # Backend Guide
 
-This folder contains the complete FastAPI backend for FaceLens. It supports two
-image sources without duplicating the face-recognition pipeline:
+This folder contains the FastAPI backend for **Daikai Robot Hub**. It supports
+two image sources while keeping one shared face-recognition pipeline:
 
 ```text
 Browser webcam -> POST /api/recognize --+
-                                      +-> FaceService -> YuNet -> SFace
-Unitree R1 -> RobotCameraService ------+
+                                        +-> FaceService -> YuNet -> SFace
+Unitree R1 -> RobotCameraService -------+
 ```
 
 The browser owns the normal webcam. The backend never opens `/dev/video*`.
-The backend owns the Unitree connection because a browser cannot communicate
-with Unitree DDS directly.
+The backend owns the Unitree connection because the browser cannot talk to
+Unitree DDS directly.
 
 ## Folder structure
 
 ```text
 backend/
-├── __init__.py
-├── __main__.py
-├── app.py
-├── main.py
-├── face_service.py
-├── robot_camera.py
-├── robot_speech.py
-├── common.py
-├── download_models.py
-├── models/
-│   ├── face_detection_yunet_2023mar.onnx
-│   └── face_recognition_sface_2021dec.onnx
-└── README.md
+|-- __init__.py
+|-- __main__.py
+|-- app.py
+|-- main.py
+|-- common.py
+|-- face_service.py
+|-- robot_camera.py
+|-- robot_battery.py
+|-- robot_control.py
+|-- robot_speech.py
+|-- download_models.py
+|-- models/
+|   |-- face_detection_yunet_2023mar.onnx
+|   `-- face_recognition_sface_2021dec.onnx
+`-- README.md
 ```
 
-The old `backend/src` folder was removed. Its webcam enrollment, recognition,
-and camera-test programs duplicated features now provided by the React web
-application and were not imported by the running backend.
+The older `backend/src` programs are no longer part of the running app. Webcam
+enrollment, recognition, and robot integrations now live behind the FastAPI
+service in this folder.
 
-## Every Python script
+## Entry points
 
 ### `__main__.py`
 
-Starts the API and configures every Unitree service with the network interface
-provided on the command line. From the project root, run:
+Command-line launcher for robot mode. It accepts the Unitree network interface,
+sets `UNITREE_NETWORK_INTERFACE`, then starts Uvicorn with one worker.
+
+From the project root:
 
 ```bash
-python3 backend eth10
+python3 backend eth0
 ```
 
-The API listens on `0.0.0.0:8000` by default. Use `--host` or `--port` to
-override either value. The launcher always uses one worker because the Unitree
-DDS clients are shared process-level resources.
+By default it listens on `0.0.0.0:8000`. You can override host and port:
 
-### `__init__.py`
+```bash
+python3 backend eth0 --host 127.0.0.1 --port 8000
+```
 
-Marks `backend` as a Python package. It contains no startup logic. Keeping it
-makes imports such as `from backend.face_service import FaceService` explicit
-and reliable.
+This is the better launcher when you want the backend itself to set the robot
+interface.
 
 ### `app.py`
 
-Small development launcher. It adds the project root to `sys.path` and starts
-Uvicorn with reload enabled:
+Small development launcher. It adds the project root to `sys.path` and starts:
 
 ```bash
 python backend/app.py
 ```
 
-Use one worker in robot mode. Unitree's DDS factory and camera client are shared
-process-level resources.
+It always uses:
+
+- `host="0.0.0.0"`
+- `port=8000`
+- `reload=True`
+
+That makes it convenient for local development, but less ideal for Apache
+reverse-proxy deployment on the Pi.
 
 ### `main.py`
 
-Defines the FastAPI application and all HTTP endpoints. During application
-startup it creates exactly one `FaceService`, `RobotCameraService`,
-`RobotBatteryService`, `RobotControlService`, and `RobotSpeechService`. On
-shutdown it stops the robot service threads and sends a final locomotion stop.
+Defines the FastAPI app, startup and shutdown lifecycle, request limits, CORS,
+and every API endpoint.
 
-It also handles:
+During startup it creates exactly one instance of:
 
-- CORS configuration;
-- upload size limits;
-- request validation;
-- conversion of service errors into HTTP responses;
-- JPEG snapshots and MJPEG streaming.
+- `FaceService`
+- `RobotCameraService`
+- `RobotBatteryService`
+- `RobotControlService`
+- `RobotSpeechService`
+
+During shutdown it stops the camera, battery subscriber, and robot control
+service cleanly.
+
+## Service modules
 
 ### `face_service.py`
 
-Contains all face-related application logic:
+Contains the shared face-recognition logic:
 
-- decode uploaded JPEG/PNG images;
-- detect faces with YuNet;
-- align faces and generate SFace embeddings;
-- compare embeddings with cosine similarity;
-- enroll or update a person;
-- save cropped enrollment photos;
-- list enrolled people.
+- decodes uploaded JPEG, PNG, and WebP images;
+- detects faces with YuNet;
+- aligns faces and extracts SFace embeddings;
+- compares embeddings with cosine similarity;
+- enrolls or updates a person;
+- saves accepted face crops;
+- lists enrolled people from metadata.
 
-Both webcam uploads and Unitree frames use this same service. OpenCV model
-objects are protected by a re-entrant lock because requests may run
-concurrently.
+Both browser uploads and Unitree camera frames use this same service.
 
 ### `robot_camera.py`
 
 Owns the Unitree camera connection. `RobotCameraService`:
 
 1. reads `UNITREE_NETWORK_INTERFACE`;
-2. imports `unitree_sdk2py` only when robot mode starts;
-3. calls `ChannelFactoryInitialize(0, interface)` once;
-4. creates one `VideoClient`;
-5. receives JPEG frames in a background thread;
+2. delays importing `unitree_sdk2py` until robot mode is actually used;
+3. initializes the DDS channel once;
+4. starts one shared `VideoClient`;
+5. captures JPEG frames in a background thread;
 6. keeps only the newest frame;
-7. exposes status, snapshot, and MJPEG-generator methods;
-8. retries temporary `GetImageSample()` failures.
+7. exposes status, snapshot, and MJPEG stream helpers;
+8. retries temporary camera-read failures.
 
-The delayed Unitree import is intentional: webcam-only mode can run without the
-Unitree SDK installed.
-
-### `robot_speech.py`
-
-Converts English text into audio and streams it through the Unitree speaker. It
-prefers `pico2wave` for local text-to-speech, with `espeak-ng` and `espeak` as
-fallbacks. It uses `ffmpeg` or `sox` to produce the required 16 kHz mono 16-bit
-PCM format.
-
-Only one speech request can play at a time, so manual speech and automatic name
-announcements cannot overlap. Speech text is limited to 200 characters.
+If `UNITREE_NETWORK_INTERFACE` is missing, the service reports
+`not_configured`.
 
 ### `robot_battery.py`
 
-Subscribes to the Unitree `rt/lf/bmsstate` DDS topic and converts raw pack,
-cell, current, temperature, charge, and health fields into frontend-ready
-units. It retains the latest reading so API requests never wait for DDS. Set
-`UNITREE_BATTERY_TOPIC` to override the topic for a different firmware build.
+Subscribes to the Unitree battery DDS topic and keeps the latest reading ready
+for API responses. It exposes battery status without making each HTTP request
+wait on DDS traffic.
+
+The topic defaults to the built-in battery topic, and you can override it with:
+
+```bash
+export UNITREE_BATTERY_TOPIC=...
+```
+
+### `robot_control.py`
+
+Provides bounded locomotion control and FSM mode queries for the Unitree R1.
+
+It supports these actions:
+
+- `enable`
+- `disable`
+- `forward`
+- `backward`
+- `left`
+- `right`
+- `turn_left`
+- `turn_right`
+- `stop`
+
+Only one control action can run at a time. Busy or invalid robot state
+conditions are returned as HTTP `409` errors by the API layer.
+
+### `robot_speech.py`
+
+Converts English text into audio and plays it through the Unitree speaker.
+
+It prefers:
+
+1. `pico2wave`
+2. `espeak-ng`
+3. `espeak`
+
+It then uses `ffmpeg` or `sox` to normalize the output to 16 kHz mono 16-bit
+PCM before streaming it to the robot.
+
+Speech is limited to `200` characters per request, and only one speech request
+can run at a time.
 
 ### `common.py`
 
-Contains small helpers shared by the backend services:
+Contains shared helpers for:
 
-- absolute project, model, and data paths;
+- project, model, and data paths;
 - metadata JSON loading and saving;
 - embedding NPZ loading and saving;
 - cosine similarity;
-- YuNet and SFace factory functions.
+- YuNet and SFace factory creation.
 
-Application data remains outside the backend package:
+Application data lives outside the backend package:
 
 ```text
 data/
-├── embeddings.npz
-├── metadata.json
-└── faces/<person>/*.jpg
+|-- embeddings.npz
+|-- metadata.json
+`-- faces/<person>/*.jpg
 ```
 
 ### `download_models.py`
 
-Optional setup utility. It downloads missing YuNet and SFace models from the
-OpenCV model repository and leaves existing files unchanged:
+Optional setup script that downloads missing YuNet and SFace ONNX models from
+the OpenCV model zoo:
 
 ```bash
 python -m backend.download_models
 ```
 
-It is not imported by the running application.
+It is not imported by the running backend.
 
 ## API endpoints
 
-| Method   | Endpoint                 | Purpose                                    |
-| -------- | ------------------------ | ------------------------------------------ |
-| `GET`  | `/api/health`          | API, model, people, and robot summary      |
-| `GET`  | `/api/people`          | List enrolled identities                   |
-| `POST` | `/api/recognize`       | Recognize an uploaded webcam/image frame   |
-| `POST` | `/api/enroll`          | Enroll images from webcam, robot, or files |
-| `GET`  | `/api/robot/status`    | Unitree configuration and capture state    |
-| `GET`  | `/api/robot/battery`   | Latest Unitree BMS battery telemetry        |
-| `GET`  | `/api/robot/control/status` | Unitree locomotion-control state       |
-| `GET`  | `/api/robot/mode`      | Current Unitree FSM name and numeric ID     |
-| `POST` | `/api/robot/control`   | Send a bounded locomotion command            |
-| `POST` | `/api/robot/connect`   | Start the shared Unitree client            |
-| `GET`  | `/api/robot/snapshot`  | Return the newest Unitree JPEG             |
-| `GET`  | `/api/robot/stream`    | Return an MJPEG Unitree preview            |
-| `POST` | `/api/robot/recognize` | Recognize the newest Unitree frame         |
-| `GET`  | `/api/robot/speech/status` | Report speech tools and busy state     |
-| `POST` | `/api/robot/speak`     | Convert English text and play it           |
+| Method | Endpoint                     | Purpose |
+| ------ | ---------------------------- | ------- |
+| `GET`  | `/api/health`                | Overall API, model, people, and robot summary |
+| `GET`  | `/api/people`                | List enrolled identities |
+| `POST` | `/api/recognize`             | Recognize one uploaded browser image |
+| `POST` | `/api/enroll`                | Enroll one person from uploaded images |
+| `GET`  | `/api/robot/status`          | Unitree camera configuration and capture state |
+| `GET`  | `/api/robot/battery`         | Latest Unitree battery telemetry |
+| `GET`  | `/api/robot/control/status`  | Current locomotion-control service status |
+| `GET`  | `/api/robot/mode`            | Current Unitree FSM mode |
+| `POST` | `/api/robot/control`         | Send one bounded locomotion command |
+| `POST` | `/api/robot/connect`         | Start the shared Unitree camera client |
+| `GET`  | `/api/robot/snapshot`        | Return the newest Unitree JPEG |
+| `GET`  | `/api/robot/stream`          | Return a live MJPEG stream |
+| `POST` | `/api/robot/recognize`       | Recognize the newest Unitree frame |
+| `GET`  | `/api/robot/speech/status`   | Report speech tool and busy status |
+| `POST` | `/api/robot/speak`           | Convert English text and play it |
 
-Interactive API documentation is available while the backend runs:
+Interactive API docs are available while the backend is running:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-## Configuration
+## Request limits
 
-### Webcam-only mode
+These limits are enforced in `main.py`:
 
-No camera environment variable is required:
+- single uploaded image: `10 MB`
+- maximum enrollment images per request: `30`
+- maximum total enrollment payload: `100 MB`
+- recognition threshold must be between `0.0` and `1.0`
+- speech text length must be between `1` and `200` characters
+
+## Startup behavior
+
+On startup:
+
+- `FaceService` loads the face models and database;
+- `RobotBatteryService.start()` is called immediately;
+- `RobotCameraService.start()` is called automatically only if
+  `UNITREE_NETWORK_INTERFACE` is already configured.
+
+That means webcam-only mode works without Unitree installed, while robot mode
+can auto-connect when the interface is set before launch.
+
+## Recommended run modes
+
+### Webcam-only development
 
 ```bash
 python backend/app.py
 ```
 
-The React frontend captures webcam frames and sends them to the upload API.
+This is the easiest way to develop locally with Vite and browser webcam input.
 
-### Unitree mode
-
-Use the Conda environment containing a working `unitree_sdk2py` and CycloneDDS:
+### Robot mode with interface passed on the command line
 
 ```bash
-conda activate unitree
-cd /home/r1-edu/Documents/Facial-Reconigtion
-export UNITREE_NETWORK_INTERFACE=enxa0cec86d95d6
-python backend/app.py
+python3 backend eth0
 ```
 
-Check the connection:
+Use this when you want the backend launcher to set
+`UNITREE_NETWORK_INTERFACE` for you.
+
+### Apache reverse-proxy deployment on Raspberry Pi
+
+If Apache proxies `/api/` to the backend, prefer binding only to localhost:
 
 ```bash
-curl -s http://127.0.0.1:8000/api/robot/status | python -m json.tool
+python3 backend eth0 --host 127.0.0.1 --port 8000
 ```
 
-A working camera reports `"connected": true` and an increasing
-`frame_sequence`.
-
-Robot speech also requires local TTS and audio conversion commands. On Ubuntu:
+Or, if you already exported the interface yourself:
 
 ```bash
-sudo apt install espeak-ng ffmpeg
+export UNITREE_NETWORK_INTERFACE=eth0
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Check speech support and send a manual test:
+This keeps port `8000` off the LAN and lets Apache be the only public entry
+point.
+
+## CORS
+
+The default allowed origins are:
+
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+
+Override them with a comma-separated environment variable:
+
+```bash
+export FR_CORS_ORIGINS=http://192.168.1.20:5173,http://10.0.0.50:5173
+```
+
+If you deploy the frontend behind Apache on the same host and use the same
+origin, extra CORS configuration is usually unnecessary.
+
+## Robot speech dependencies
+
+Robot speech needs:
+
+- one TTS engine: `pico2wave`, `espeak-ng`, or `espeak`
+- one audio conversion tool: `ffmpeg` or `sox`
+
+Example on Debian or Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y libttspico-utils ffmpeg
+```
+
+Check support and send a manual speech test:
 
 ```bash
 curl http://127.0.0.1:8000/api/robot/speech/status
 curl -X POST http://127.0.0.1:8000/api/robot/speak \
   -H 'Content-Type: application/json' \
-  -d '{"text":"Hello from FaceLens"}'
+  -d '{"text":"Hello from Daikai Robot Hub"}'
 ```
-
-### CORS
-
-The default allowed frontend origins are `http://localhost:5173` and
-`http://127.0.0.1:5173`. Override them with a comma-separated list:
-
-```bash
-export FR_CORS_ORIGINS=http://192.168.1.20:5173
-```
-
-## Request limits
-
-- One uploaded image: 10 MB maximum.
-- Enrollment batch: 30 images maximum.
-- Enrollment batch total: 100 MB maximum.
-- Recognition threshold: `0.0` through `1.0`; frontend default `0.45`.
 
 ## Robot states
 
-| State              | Meaning                                         |
-| ------------------ | ----------------------------------------------- |
-| `not_configured` | `UNITREE_NETWORK_INTERFACE` is missing        |
-| `stopped`        | Configured but capture has not started          |
-| `connecting`     | DDS and`VideoClient` are initializing         |
-| `connected`      | Fresh JPEG frames are arriving                  |
-| `reconnecting`   | A temporary camera read failed; retrying        |
-| `error`          | SDK import or initialization failed permanently |
+### Camera service states
+
+`RobotCameraService.status()` can report:
+
+| State | Meaning |
+| ----- | ------- |
+| `not_configured` | `UNITREE_NETWORK_INTERFACE` is missing |
+| `stopped` | Configured but capture has not started |
+| `connecting` | DDS and camera client are starting |
+| `connected` | Fresh JPEG frames are arriving |
+| `reconnecting` | A temporary camera read failed and retry is in progress |
+| `error` | SDK import or initialization failed |
 
 ## Quick verification
 
 ```bash
 python -m py_compile backend/*.py
 curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/people
 curl http://127.0.0.1:8000/api/robot/status
+curl http://127.0.0.1:8000/api/robot/speech/status
 curl http://127.0.0.1:8000/api/robot/snapshot --output /tmp/robot.jpg
 ```
 
-When troubleshooting imports, confirm that the backend uses the intended
+When troubleshooting imports, confirm the backend is using the intended Python
 interpreter:
 
 ```bash
 which python
+python --version
 python -c "import fastapi, cv2; from unitree_sdk2py.go2.video.video_client import VideoClient; print('OK')"
 ```
