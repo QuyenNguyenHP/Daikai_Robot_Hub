@@ -1,23 +1,33 @@
-# Daikai Robot Hub: Face Recognition with Webcam and Unitree R1
+# Daikai Robot Hub: Control the Unitree R1 Robot with Face Recognition
 
-Daikai Robot Hub is a local face enrollment and recognition application built with
-FastAPI, React, OpenCV YuNet, and OpenCV SFace. The application supports two
-camera sources:
+Daikai Robot Hub is a local robot operations and face-recognition application
+built with FastAPI, React, OpenCV YuNet, and OpenCV SFace. It combines:
 
-- **Device webcam**: the webcam of the machine running the browser.
+- Unitree R1 camera access through Unitree SDK2
+- face enrollment and recognition
+- robot speech playback
+- robot battery monitoring
+- bounded locomotion control
+
+The application uses one camera source:
+
 - **Unitree R1 camera**: the robot camera, read by the backend through
   Unitree SDK2.
 
-Both sources share the same YuNet, SFace, and face database stored in `data/`.
-The first page also lets you enter an English sentence for the robot to speak.
-The **Auto name** button turns automatic spoken greetings on or off when
-recognition confidence reaches 70% or higher.
+The robot camera shares the same YuNet, SFace, and face database stored in
+`data/`. The main interface also lets you:
+
+- send English speech to the robot speaker
+- view live battery telemetry
+- send safe movement commands
+- enable automatic spoken name greetings when recognition confidence reaches
+  70% or higher
 
 ## Main structure
 
 ```text
-backend/           FastAPI backend, face processing, and robot camera logic
-frontend/          React frontend and browser camera UI
+backend/           FastAPI backend, face recognition, robot control, and robot services
+frontend/          React frontend for robot camera, robot status, and control panels
 data/              images, embeddings, and metadata
 reference_script/  standalone robot test scripts
 ```
@@ -29,14 +39,15 @@ Instructions for LAN access through Apache2 are in
 ## Architecture
 
 ```text
-Browser webcam -> Upload JPEG image ------+
-                                          +-> FastAPI -> YuNet -> SFace
-Unitree R1 -> Unitree SDK -> FastAPI -----+
+Unitree R1 camera  -> Unitree SDK2 -> RobotCamera ------+
+                                                        +-> FastAPI -> YuNet -> SFace
+Unitree R1 battery -> DDS topic -> RobotBattery -------+
+Unitree R1 motion  -> RobotControl API ----------------+
+Unitree R1 speaker -> RobotSpeech API -----------------+
 ```
 
-The browser webcam is accessed through `navigator.mediaDevices.getUserMedia()`.
-The robot camera is read by a shared backend `VideoClient` through Unitree DDS;
-the browser does not connect to DDS directly.
+The robot camera, battery, motion, and speaker integrations are handled by the
+backend because the browser does not connect to Unitree DDS directly.
 
 ## Requirements
 
@@ -144,9 +155,7 @@ ls -lh /tmp/pico-test.wav
 If the WAV file is created successfully, text-to-speech is ready for backend
 use.
 
-## Run with a webcam
-
-The browser manages the webcam, and the backend never opens `/dev/video*`.
+## Run the frontend locally
 
 Terminal 1:
 
@@ -161,7 +170,7 @@ cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173`, choose **Device webcam**, then click
+Open `http://localhost:5173`, choose **Unitree R1 camera**, then click
 **Start camera**.
 
 ## Install Unitree SDK2 Python
@@ -396,27 +405,34 @@ Then choose **Unitree R1 camera** in the UI and click **Start camera**.
 
 The backend provides these endpoints:
 
-| Endpoint                                     | Purpose                                   |
-| -------------------------------------------- | ----------------------------------------- |
-| `GET /api/robot/status`                      | View robot camera configuration and state |
-| `POST /api/robot/connect`                    | Start the shared Unitree camera client    |
-| `GET /api/robot/snapshot`                    | Get the newest robot JPEG                 |
-| `GET /api/robot/stream`                      | View the live MJPEG stream                |
-| `POST /api/robot/recognize?threshold=0.45`   | Recognize faces in the newest frame       |
+| Endpoint                                   | Purpose |
+| ------------------------------------------ | ------- |
+| `GET /api/robot/status`                    | View robot camera configuration and state |
+| `POST /api/robot/connect`                  | Start the shared Unitree camera client |
+| `GET /api/robot/snapshot`                  | Get the newest robot JPEG |
+| `GET /api/robot/stream`                    | View the live MJPEG stream |
+| `POST /api/robot/recognize?threshold=0.45` | Recognize faces in the newest frame |
+| `GET /api/robot/battery`                   | View the latest battery telemetry |
+| `GET /api/robot/control/status`            | View locomotion control status |
+| `GET /api/robot/mode`                      | Query the current robot FSM mode |
+| `POST /api/robot/control`                  | Send a bounded locomotion command |
+| `GET /api/robot/speech/status`             | Check speech tool availability and busy state |
+| `POST /api/robot/speak`                    | Send English speech to the robot speaker |
 
-The original image-upload endpoints are still available, so webcam mode and
-external API clients remain compatible.
+The HTTP API can also be used by external clients if needed.
+
+For backend implementation details, endpoint behavior, and recommended launch
+modes, see [`backend/README.md`](backend/README.md).
 
 ## Face enrollment
 
 1. Open the **Enroll** screen.
 2. Enter the person's name.
-3. Choose the webcam or robot camera.
+3. Use the Unitree R1 camera to capture samples.
 4. Capture 10-20 clear images with slight pose and expression changes.
 5. Click **Create face profile**.
 
-You can upload JPG, PNG, or WebP files and mix them with samples captured from
-the camera. Images and vectors are stored in:
+Images and vectors are stored in:
 
 ```text
 data/faces/<name>/
@@ -427,7 +443,7 @@ data/metadata.json
 ## Recognition
 
 1. Open the **Recognize** screen.
-2. Choose the camera source.
+2. Use the Unitree R1 camera.
 3. Click **Start camera**.
 4. Click **Start recognition**.
 
@@ -471,7 +487,12 @@ If needed, open CORS on the backend:
 export FR_CORS_ORIGINS=http://FRONTEND_IP:5173
 ```
 
-### Webcam access is denied
+### The robot camera does not start
 
-Allow camera access in the browser. `getUserMedia()` requires `localhost` or
-HTTPS when the application is not running on the local machine.
+Check that:
+
+- `UNITREE_NETWORK_INTERFACE` is set correctly;
+- the backend is running in the Python environment that contains
+  `unitree_sdk2py`;
+- the robot is reachable on the selected interface;
+- `GET /api/robot/status` reports a configured or connected state.
