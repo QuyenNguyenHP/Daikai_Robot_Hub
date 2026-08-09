@@ -36,6 +36,118 @@ Details for each backend Python file are in [`backend/README.md`](backend/README
 Instructions for LAN access through Apache2 are in
 [`APACHE2_LAN_SETUP_vi.md`](APACHE2_LAN_SETUP_vi.md).
 
+## General frontend style
+
+The frontend uses a dark, futuristic operations-dashboard style. The visual
+language is restrained rather than decorative: deep navy backgrounds, layered
+translucent panels, fine low-contrast borders, compact telemetry labels, and a
+bright cyan accent for interactive and live states. The complete implementation
+is in [`frontend/src/styles.css`](frontend/src/styles.css).
+
+### Design foundation
+
+- **Typography:** use **DM Sans** for body text, controls, and labels. Use
+  **Manrope** at weights 500-700 for headings, metrics, and other prominent
+  values. Headings use slightly tight letter spacing; small labels use wide
+  letter spacing and often uppercase text.
+- **Page background:** start with `#07101c` and add subtle blue/cyan radial
+  gradients. This creates depth without competing with application content.
+- **Surfaces:** use dark navy translucent gradients, a `20px` radius, a faint
+  cool-gray border, and a soft downward shadow. Nested surfaces are darker,
+  flatter, and normally use an `8-12px` radius.
+- **Accent color:** cyan communicates primary actions, focus, connectivity,
+  active navigation, recognition, and live data. Do not use it on every piece
+  of text; the limited use of cyan preserves its meaning.
+- **Semantic color:** coral red communicates errors, unknown detections, stop
+  actions, and safety warnings. Soft green is reserved for successful results
+  or healthy states.
+- **Text hierarchy:** use near-white for important content, blue-gray for
+  supporting text, and small uppercase cyan text for section eyebrows.
+
+Core colors can be copied into another project as CSS custom properties:
+
+```css
+:root {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: #e7edf7;
+  background: #07101c;
+
+  --bg: #07101c;
+  --panel: rgba(15, 28, 44, 0.82);
+  --panel-border: rgba(148, 171, 202, 0.14);
+  --muted: #8ea0b9;
+  --cyan: #55dfd2;
+  --cyan-deep: #0da99c;
+  --danger: #ff6f7d;
+}
+```
+
+The main surface treatment is:
+
+```css
+.panel {
+  background: linear-gradient(
+    145deg,
+    rgba(17, 32, 50, 0.95),
+    rgba(11, 23, 38, 0.9)
+  );
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.18);
+}
+```
+
+### Layout and spacing
+
+Content is centered in a `1440px` maximum-width container with fluid horizontal
+padding (`clamp(18px, 4vw, 64px)`). Desktop pages use CSS Grid for a wide main
+workspace and a narrower status/control column. Keep `20px` between major
+panels and approximately `20-24px` of internal panel padding. Use Flexbox for
+small one-dimensional groups such as headings, actions, status rows, and
+navigation.
+
+The top bar is sticky and slightly translucent with an `18px` backdrop blur.
+This glass effect should be limited to persistent navigation and modal
+backdrops; normal content stays readable through more opaque panel surfaces.
+
+### Reusable component conventions
+
+- **Buttons:** `42px` minimum height, `10px` radius, bold `13px` text, and a
+  subtle `0.2s` transition. Primary buttons use cyan with very dark text;
+  secondary buttons use a faint gray-blue fill and border. Disabled controls
+  reduce opacity and replace the pointer cursor.
+- **Inputs:** `46px` height, `10px` radius, dark translucent fill, and a subtle
+  border. Focus changes the border to deep cyan and adds a low-opacity cyan
+  focus ring.
+- **Status pills:** use fully rounded capsules, compact `11px` text, a faint
+  background, and a small circular indicator. A live indicator becomes cyan
+  and receives a restrained glow.
+- **Telemetry:** show important numbers in Manrope and supporting labels in
+  small, widely spaced DM Sans. Definition lists and compact two-column grids
+  work well for dense metrics.
+- **Feedback:** display errors in coral, successes in soft green, and keep both
+  on low-opacity tinted backgrounds with matching borders.
+- **Motion:** keep animation functional and short. The current interface uses
+  small hover lifts, color fades, status glows, and linear tracking-box
+  movement rather than large decorative animation.
+
+### Responsive behavior
+
+The design uses two breakpoints:
+
+- At `900px` and below, major two-column workspaces become one column. Supporting
+  side panels may remain in two columns when space permits, and secondary API
+  status is hidden.
+- At `620px` and below, the header and all supporting panels become one column,
+  navigation stretches across the width, panel padding reduces to `15px`, and
+  action/form rows stack or become equal-width grids.
+
+When reusing this style, preserve the hierarchy of **page background -> panel ->
+nested surface**, the restrained cyan accent, and the `20px` spacing rhythm.
+Application-specific selectors such as camera, battery, face-box, and movement
+controls can be omitted; the root tokens, `.panel`, `.button`, `.text-input`,
+status, feedback, layout, and responsive rules form the reusable core.
+
 ## Architecture
 
 ```text
