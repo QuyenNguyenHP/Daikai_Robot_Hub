@@ -517,19 +517,19 @@ Then choose **Unitree R1 camera** in the UI and click **Start camera**.
 
 The backend provides these endpoints:
 
-| Endpoint                                   | Purpose |
-| ------------------------------------------ | ------- |
-| `GET /api/robot/status`                    | View robot camera configuration and state |
-| `POST /api/robot/connect`                  | Start the shared Unitree camera client |
-| `GET /api/robot/snapshot`                  | Get the newest robot JPEG |
-| `GET /api/robot/stream`                    | View the live MJPEG stream |
-| `POST /api/robot/recognize?threshold=0.45` | Recognize faces in the newest frame |
-| `GET /api/robot/battery`                   | View the latest battery telemetry |
-| `GET /api/robot/control/status`            | View locomotion control status |
-| `GET /api/robot/mode`                      | Query the current robot FSM mode |
-| `POST /api/robot/control`                  | Send a bounded locomotion command |
+| Endpoint                                     | Purpose                                       |
+| -------------------------------------------- | --------------------------------------------- |
+| `GET /api/robot/status`                    | View robot camera configuration and state     |
+| `POST /api/robot/connect`                  | Start the shared Unitree camera client        |
+| `GET /api/robot/snapshot`                  | Get the newest robot JPEG                     |
+| `GET /api/robot/stream`                    | View the live MJPEG stream                    |
+| `POST /api/robot/recognize?threshold=0.45` | Recognize faces in the newest frame           |
+| `GET /api/robot/battery`                   | View the latest battery telemetry             |
+| `GET /api/robot/control/status`            | View locomotion control status                |
+| `GET /api/robot/mode`                      | Query the current robot FSM mode              |
+| `POST /api/robot/control`                  | Send a bounded locomotion command             |
 | `GET /api/robot/speech/status`             | Check speech tool availability and busy state |
-| `POST /api/robot/speak`                    | Send English speech to the robot speaker |
+| `POST /api/robot/speak`                    | Send English speech to the robot speaker      |
 
 The HTTP API can also be used by external clients if needed.
 

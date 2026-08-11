@@ -98,6 +98,8 @@ class SpeechRequest(BaseModel):
 
 class ControlRequest(BaseModel):
     action: Literal[
+        "stance",
+        "zero_torque",
         "enable",
         "disable",
         "forward",
@@ -107,6 +109,33 @@ class ControlRequest(BaseModel):
         "turn_left",
         "turn_right",
         "stop",
+        "neck_up",
+        "neck_down",
+        "neck_left",
+        "neck_right",
+        "neck_center",
+        "arm_blow_kiss_both",
+        "arm_blow_kiss_left",
+        "arm_blow_kiss_right",
+        "arm_both_hands_up",
+        "arm_clap",
+        "arm_high_five",
+        "arm_hug",
+        "arm_refuse",
+        "arm_right_hand_up",
+        "arm_ultraman_ray",
+        "arm_wave_under_head",
+        "arm_wave",
+        "arm_handshake",
+        "arm_box_left_win",
+        "arm_box_right_win",
+        "arm_box_both_win",
+        "arm_extend_right_arm",
+        "arm_right_hand_heart",
+        "arm_hands_up_right",
+        "arm_emphasize",
+        "arm_forward_push",
+        "arm_release",
     ]
 
 

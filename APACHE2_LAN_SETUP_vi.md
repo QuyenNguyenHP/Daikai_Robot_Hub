@@ -89,7 +89,7 @@ The frontend is built once, then Apache serves the static files from `dist/`.
 ```bash
 cd /home/r1-edu/Documents/Facial-Reconigtion/frontend
 npm install
-VITE_API_URL="http://10.0.0.242" npm run build
+VITE_API_URL="http://10.0.0.244" npm run build
 ```
 
 After the build completes, copy the frontend files into the Apache web root:

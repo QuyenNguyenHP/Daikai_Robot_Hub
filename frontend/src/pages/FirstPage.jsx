@@ -11,8 +11,15 @@ import {
 import { addImageDimensions, smoothDetections } from '../services/detections'
 
 
-const AUTO_SPEECH_CONFIDENCE = 0.7
+const AUTO_SPEECH_CONFIDENCE = 0.75
 const ANNOUNCEMENT_COOLDOWN_MS = 15_000
+
+
+function formatNames(names) {
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
+}
 
 
 export function FirstPage() {
@@ -54,21 +61,34 @@ export function FirstPage() {
     }
   }, [])
 
-  const announceBestDetection = useCallback((current) => {
+  const announceDetections = useCallback((current) => {
     if (!autoSpeechEnabled || speechRequestBusy.current) return
-    const best = current
+    const recognizedByName = new Map()
+    current
       .filter(({ name, confidence }) => (
         name !== 'unknown' && confidence >= AUTO_SPEECH_CONFIDENCE
       ))
-      .sort((first, second) => second.confidence - first.confidence)[0]
-    if (!best) return
+      .forEach((detection) => {
+        const previous = recognizedByName.get(detection.name)
+        if (!previous || detection.confidence > previous.confidence) {
+          recognizedByName.set(detection.name, detection)
+        }
+      })
 
     const now = Date.now()
-    const previousTime = announcementTimes.current.get(best.name) || 0
-    if (now - previousTime < ANNOUNCEMENT_COOLDOWN_MS) return
+    const names = [...recognizedByName.values()]
+      .filter(({ name }) => (
+        now - (announcementTimes.current.get(name) || 0) >= ANNOUNCEMENT_COOLDOWN_MS
+      ))
+      .sort((first, second) => second.confidence - first.confidence)
+      .map(({ name }) => name)
+    if (names.length === 0) return
 
-    announcementTimes.current.set(best.name, now)
-    void speak(`Hello, ${best.name}.`, true)
+    names.forEach((name) => announcementTimes.current.set(name, now))
+    const greeting = new Date(now).getHours() < 12
+      ? 'Good morning'
+      : 'Good afternoon'
+    void speak(`${greeting}, ${formatNames(names)}.`, true)
   }, [autoSpeechEnabled, speak])
 
   useEffect(() => {
@@ -85,7 +105,7 @@ export function FirstPage() {
         setDetections((previous) => smoothDetections(previous, current))
         setLastScan(new Date())
         setScanError('')
-        announceBestDetection(current)
+        announceDetections(current)
       } catch (error) {
         if (active) setScanError(error.message)
       } finally {
@@ -100,7 +120,7 @@ export function FirstPage() {
       window.clearInterval(timer)
     }
   }, [
-    announceBestDetection,
+    announceDetections,
     camera.cameraOn,
     running,
     threshold,
@@ -126,7 +146,10 @@ export function FirstPage() {
   return (
     <div className="first-page">
       <section className="workspace-grid">
-        <div className="panel camera-panel">
+        <BatteryStatus />
+
+        <div className="camera-column">
+          <div className="panel camera-panel">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">LIVE CAMERA</p>
@@ -168,22 +191,21 @@ export function FirstPage() {
             lastScan={lastScan}
             onThresholdChange={setThreshold}
           />
+          </div>
+
+          <div className="panel speech-panel">
+            <RobotSpeechPanel
+              autoEnabled={autoSpeechEnabled}
+              busy={speechBusy}
+              message={speechMessage}
+              lastSpoken={lastSpoken}
+              onSpeak={speak}
+              onToggleAuto={toggleAutoSpeech}
+            />
+          </div>
         </div>
 
-        <aside className="side-stack">
-          <BatteryStatus />
-          <RobotControlPanel />
-        </aside>
-        <div className="panel speech-panel">
-          <RobotSpeechPanel
-            autoEnabled={autoSpeechEnabled}
-            busy={speechBusy}
-            message={speechMessage}
-            lastSpoken={lastSpoken}
-            onSpeak={speak}
-            onToggleAuto={toggleAutoSpeech}
-          />
-        </div>
+        <RobotControlPanel />
       </section>
 
 

@@ -29,7 +29,7 @@ export function RobotSpeechPanel({
           className={`button auto-speech-toggle ${autoEnabled ? 'active' : ''}`}
           onClick={onToggleAuto}
         >
-          Auto name: {autoEnabled ? 'ON' : 'OFF'}
+          Greeting: {autoEnabled ? 'ON' : 'OFF'}
         </button>
       </div>
 
@@ -47,7 +47,7 @@ export function RobotSpeechPanel({
       </form>
 
       <div className="speech-details">
-        <span>When auto name is on, a known face at 70% similarity or higher is announced.</span>
+        <span>Greeting announces everyone recognized at 75% confidence or higher.</span>
         {lastSpoken && <strong>Last spoken: “{lastSpoken}”</strong>}
       </div>
       {message && (
