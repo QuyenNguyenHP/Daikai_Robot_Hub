@@ -47,7 +47,7 @@ export function RobotSpeechPanel({
       </form>
 
       <div className="speech-details">
-        <span>Greeting announces everyone recognized at 75% confidence or higher.</span>
+        <span>Greeting announces everyone recognized at 55% confidence or higher.</span>
         {lastSpoken && <strong>Last spoken: “{lastSpoken}”</strong>}
       </div>
       {message && (

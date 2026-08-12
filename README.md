@@ -21,7 +21,7 @@ The robot camera shares the same YuNet, SFace, and face database stored in
 - view live battery telemetry
 - send safe movement commands
 - enable automatic spoken name greetings when recognition confidence reaches
-  70% or higher
+  55% or higher
 
 ## Main structure
 
@@ -486,7 +486,6 @@ export CMAKE_PREFIX_PATH="$CYCLONEDDS_HOME:$CMAKE_PREFIX_PATH"
 export LD_LIBRARY_PATH="$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH"
 export UNITREE_NETWORK_INTERFACE=enxa0cec86d95d6
 
-cd /home/r1-edu/Documents/Facial-Reconigtion
 python backend/app.py
 ```
 

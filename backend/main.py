@@ -109,6 +109,8 @@ class ControlRequest(BaseModel):
         "turn_left",
         "turn_right",
         "stop",
+        "neck_enable",
+        "neck_disable",
         "neck_up",
         "neck_down",
         "neck_left",

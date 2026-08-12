@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
@@ -11,9 +12,12 @@ import time
 COMMAND_DURATION = 1.0
 LINEAR_SPEED = 0.5
 LATERAL_SPEED = 0.4
-TURN_SPEED = 0.8
+TURN_SPEED = math.radians(60.0)
 LOCOMOTION_FSM_ID = 811
-ARM_RELEASE_SETTLE_TIME = 8.0
+LOCOMOTION_FSM_IDS = frozenset({811, 816})
+# `release_arm` is an ownership hand-off, not a gesture that needs the generic
+# eight-second action wait used by the standalone action demo.
+ARM_RELEASE_SETTLE_TIME = 0.5
 
 NECK_ACTIONS = {"neck_up", "neck_down", "neck_left", "neck_right", "neck_center"}
 ARM_ACTIONS = {
@@ -48,6 +52,7 @@ FSM_NAMES = {
     701: "LIE TO STAND",
     702: "STAND TO LIE",
     811: "LOCOMOTION",
+    816: "LOCOMOTION",
 }
 
 VELOCITY_COMMANDS = {
@@ -84,19 +89,38 @@ class RobotControlService:
         self._client = None
         self._arm_client = None
         self._arm_actions: dict[int, str] | None = None
+        self._arm_action_active = False
         self._neck_controller = None
         self._locomotion_started = False
+        self._last_fsm_id: int | None = None
+        try:
+            preferred_fsm_id = int(
+                os.getenv("UNITREE_LOCOMOTION_FSM_ID", str(LOCOMOTION_FSM_ID))
+            )
+        except ValueError:
+            preferred_fsm_id = LOCOMOTION_FSM_ID
+        self._preferred_locomotion_fsm_id = (
+            preferred_fsm_id
+            if preferred_fsm_id in LOCOMOTION_FSM_IDS
+            else LOCOMOTION_FSM_ID
+        )
         self._last_action: str | None = None
         self._last_code: int | None = None
         self._error: str | None = None
 
     def status(self) -> dict[str, object]:
         with self._state_lock:
-            return {
+            payload = {
+                "process_id": os.getpid(),
                 "configured": bool(self.network_interface),
                 "initialized": self._client is not None,
                 "busy": self._lock.locked(),
                 "locomotion_started": self._locomotion_started,
+                "last_fsm_id": self._last_fsm_id,
+                "accepted_locomotion_fsm_ids": sorted(LOCOMOTION_FSM_IDS),
+                "preferred_locomotion_fsm_id": self._preferred_locomotion_fsm_id,
+                "arm_action_active": self._arm_action_active,
+                "neck_control_active": self._neck_controller is not None,
                 "last_action": self._last_action,
                 "last_code": self._last_code,
                 "error": self._error,
@@ -105,6 +129,11 @@ class RobotControlService:
                 "lateral_speed_mps": LATERAL_SPEED,
                 "turn_speed_radps": TURN_SPEED,
             }
+        neck_controller = self._neck_controller
+        payload["neck"] = (
+            neck_controller.status() if neck_controller is not None else None
+        )
+        return payload
 
     def _client_instance(self):
         if self._client is not None:
@@ -205,10 +234,18 @@ class RobotControlService:
         try:
             from backend.robot_neck import RobotNeckController
 
-            # Arm actions retain ownership after execution. Release that service
-            # before claiming the same joints through rt/arm_sdk for neck control.
-            self._execute_arm_action("release_arm")
-            time.sleep(ARM_RELEASE_SETTLE_TIME)
+            # Locomotion remains on the high-level LocoClient (FSM 811/816), while
+            # the neck uses the separate rt/arm_sdk channel. Do not call the arm
+            # RPC on first use: that unnecessary round trip plus the old fixed
+            # wait made the first neck command appear frozen. Only hand ownership
+            # back when this process actually started an arm action earlier.
+            with self._state_lock:
+                arm_action_active = self._arm_action_active
+            if arm_action_active:
+                self._execute_arm_action("release_arm")
+                with self._state_lock:
+                    self._arm_action_active = False
+                time.sleep(ARM_RELEASE_SETTLE_TIME)
             controller = RobotNeckController()
             controller.initialize()
             if not controller.start():
@@ -221,6 +258,18 @@ class RobotControlService:
         except Exception as exc:
             raise RobotControlError(f"Could not initialize neck control: {exc}") from exc
         self._neck_controller = controller
+        return controller
+
+    def _active_neck_controller(self):
+        controller = self._neck_controller
+        if controller is None:
+            raise RobotControlStateError(
+                "Enable neck control before sending neck movement commands."
+            )
+        if controller.fault is not None:
+            fault = controller.fault
+            self._release_neck()
+            raise RobotControlError(f"Neck control stopped: {fault}")
         return controller
 
     @staticmethod
@@ -245,12 +294,45 @@ class RobotControlService:
             ) from exc
 
     def _require_locomotion(self, client) -> None:
-        with self._state_lock:
-            locomotion_started = self._locomotion_started
-        if not locomotion_started or self._fsm_id(client) != LOCOMOTION_FSM_ID:
+        # Query the robot instead of relying only on local state. The backend
+        # may have started while the robot was already in locomotion mode.
+        fsm_id = self._fsm_id(client)
+        self._set_fsm_state(fsm_id)
+        if fsm_id not in LOCOMOTION_FSM_IDS:
             raise RobotControlStateError(
-                "Enable locomotion before sending robot control commands."
+                "Enable locomotion before sending robot control commands; "
+                f"accepted FSM IDs are {sorted(LOCOMOTION_FSM_IDS)}, got {fsm_id}."
             )
+
+    def _set_fsm_state(self, fsm_id: int) -> None:
+        with self._state_lock:
+            self._last_fsm_id = fsm_id
+            self._locomotion_started = fsm_id in LOCOMOTION_FSM_IDS
+            if self._locomotion_started:
+                self._preferred_locomotion_fsm_id = fsm_id
+
+    def _mode_payload(
+        self,
+        fsm_id: int | None,
+        *,
+        control_busy: bool,
+        stale: bool,
+    ) -> dict[str, object]:
+        if fsm_id is None:
+            fsm_name = "UNKNOWN"
+            display = "Mode query pending"
+        else:
+            fsm_name = FSM_NAMES.get(fsm_id, "UNKNOWN/UNDOCUMENTED")
+            display = f"{fsm_name} (ID {fsm_id})"
+        return {
+            "process_id": os.getpid(),
+            "configured": bool(self.network_interface),
+            "fsm_id": fsm_id,
+            "fsm_name": fsm_name,
+            "display": display,
+            "control_busy": control_busy,
+            "stale": stale,
+        }
 
     @staticmethod
     def _require_success(code: int, action: str) -> None:
@@ -274,6 +356,7 @@ class RobotControlService:
         if not self._lock.acquire(blocking=False):
             raise RobotControlBusyError("Another robot control command is running.")
 
+        details: dict[str, object] = {}
         try:
             client = self._client_instance()
 
@@ -287,24 +370,23 @@ class RobotControlService:
                 self._release_neck()
                 code = client.SetFsmId(4)
                 self._require_success(code, "enter stance mode")
-                with self._state_lock:
-                    self._locomotion_started = False
+                self._set_fsm_state(4)
 
             elif action == "zero_torque":
                 self._release_neck()
                 code = client.SetFsmId(0)
                 self._require_success(code, "enter zero torque mode")
-                with self._state_lock:
-                    self._locomotion_started = False
+                self._set_fsm_state(0)
 
             elif action == "enable":
                 code = client.SetFsmId(4)
                 self._require_success(code, "enter stance mode")
                 time.sleep(0.5)
-                code = client.SetFsmId(811)
-                self._require_success(code, "enable locomotion")
                 with self._state_lock:
-                    self._locomotion_started = True
+                    locomotion_fsm_id = self._preferred_locomotion_fsm_id
+                code = client.SetFsmId(locomotion_fsm_id)
+                self._require_success(code, "enable locomotion")
+                self._set_fsm_state(locomotion_fsm_id)
 
             elif action == "disable":
                 self._release_neck()
@@ -312,8 +394,7 @@ class RobotControlService:
                 self._require_success(code, "disable control")
                 code = client.SetFsmId(4)
                 self._require_success(code, "return to stance mode")
-                with self._state_lock:
-                    self._locomotion_started = False
+                self._set_fsm_state(4)
 
             elif action == "stop":
                 self._require_locomotion(client)
@@ -326,9 +407,28 @@ class RobotControlService:
                 code = client.SetVelocity(vx, vy, omega, COMMAND_DURATION)
                 self._require_success(code, action)
 
+            elif action == "neck_enable":
+                self._require_locomotion(client)
+                controller = self._neck_controller_instance()
+                details["neck"] = controller.status()
+                code = 0
+
+            elif action == "neck_disable":
+                self._release_neck()
+                code = 0
+
             elif action in NECK_ACTIONS:
                 self._require_locomotion(client)
-                self._neck_controller_instance().apply(action)
+                # The explicit neck-enable button prepares this controller. If
+                # the backend was restarted between clicks, recover lazily so a
+                # valid movement command is not rejected solely because the
+                # in-memory controller instance was lost.
+                controller = (
+                    self._active_neck_controller()
+                    if self._neck_controller is not None
+                    else self._neck_controller_instance()
+                )
+                details["neck"] = controller.apply(action)
                 code = 0
 
             elif action in ARM_ACTIONS:
@@ -336,6 +436,8 @@ class RobotControlService:
                 self._release_neck()
                 action_name = ARM_ACTIONS[action]
                 code = self._execute_arm_action(action_name)
+                with self._state_lock:
+                    self._arm_action_active = action_name != "release_arm"
 
             else:
                 raise RobotControlError(f"Unsupported robot action: {action}")
@@ -350,29 +452,26 @@ class RobotControlService:
             raise RobotControlError(message) from exc
         finally:
             self._lock.release()
-        return {"ok": True, "action": action, **self.status()}
+        return {"ok": True, "action": action, **details, **self.status()}
 
     def mode(self) -> dict[str, object]:
         """Query the robot's registered FSM mode through locomotion API 7001."""
-        if not self._lock.acquire(timeout=1.0):
-            raise RobotControlBusyError("Robot control is busy; mode is unavailable.")
+        if not self._lock.acquire(blocking=False):
+            # Mode is polled by the UI while long-running robot commands are in
+            # progress. Return the most recent observation instead of turning
+            # a harmless status poll into HTTP 409.
+            with self._state_lock:
+                fsm_id = self._last_fsm_id
+            return self._mode_payload(fsm_id, control_busy=True, stale=True)
 
         try:
             client = self._client_instance()
             fsm_id = self._fsm_id(client)
-            locomotion_active = fsm_id == LOCOMOTION_FSM_ID
-            with self._state_lock:
-                self._locomotion_started = locomotion_active
-            if not locomotion_active:
-                self._release_neck()
-
-            fsm_name = FSM_NAMES.get(fsm_id, "UNKNOWN/UNDOCUMENTED")
-            return {
-                "configured": bool(self.network_interface),
-                "fsm_id": fsm_id,
-                "fsm_name": fsm_name,
-                "display": f"{fsm_name} (ID {fsm_id})",
-            }
+            self._set_fsm_state(fsm_id)
+            # Status endpoints must be read-only. Neck ownership is released by
+            # explicit commands (neck_disable, stance, zero_torque, disable),
+            # never by the frontend's two-second mode polling.
+            return self._mode_payload(fsm_id, control_busy=False, stale=False)
         except RobotControlError:
             raise
         except Exception as exc:

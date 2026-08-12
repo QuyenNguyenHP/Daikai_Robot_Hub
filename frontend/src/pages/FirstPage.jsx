@@ -11,7 +11,7 @@ import {
 import { addImageDimensions, smoothDetections } from '../services/detections'
 
 
-const AUTO_SPEECH_CONFIDENCE = 0.75
+const AUTO_SPEECH_CONFIDENCE = 0.55
 const ANNOUNCEMENT_COOLDOWN_MS = 15_000
 
 

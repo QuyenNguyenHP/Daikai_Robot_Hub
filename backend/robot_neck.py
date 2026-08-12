@@ -12,10 +12,13 @@ HEAD_YAW = 30
 CONTROL_PERIOD = 0.01
 STATE_TIMEOUT = 1.0
 RELEASE_DURATION = 1.0
-STEP_RADIANS = math.radians(5.0)
+STEP_RADIANS = math.radians(10.0)
 PITCH_LIMIT = math.radians(30.0)
 YAW_LIMIT = math.radians(60.0)
-MAXIMUM_SPEED = math.radians(45.0)
+MAXIMUM_SPEED = math.radians(30.0)
+MOVEMENT_TIMEOUT = 2.0
+MOVEMENT_THRESHOLD = math.radians(0.5)
+TARGET_TOLERANCE = math.radians(1.0)
 
 ARM_SDK_JOINTS = (15, 16, 17, 18, 19, 22, 23, 24, 25, 26, 13, 29, 30)
 ARM_SDK_KP = (
@@ -44,6 +47,7 @@ class RobotNeckController:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._state_ready = threading.Event()
+        self._feedback_updated = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._active = False
@@ -52,6 +56,10 @@ class RobotNeckController:
         self._target_yaw = 0.0
         self._command_pitch = 0.0
         self._command_yaw = 0.0
+        self._measured_pitch = 0.0
+        self._measured_yaw = 0.0
+        self._publish_count = 0
+        self._last_write_ok: bool | None = None
         self._fault: str | None = None
 
         self._crc = None
@@ -63,6 +71,21 @@ class RobotNeckController:
     def fault(self) -> str | None:
         with self._lock:
             return self._fault
+
+    def status(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "active": self._active and not self._stop.is_set(),
+                "fault": self._fault,
+                "target_pitch_deg": round(math.degrees(self._target_pitch), 2),
+                "target_yaw_deg": round(math.degrees(self._target_yaw), 2),
+                "command_pitch_deg": round(math.degrees(self._command_pitch), 2),
+                "command_yaw_deg": round(math.degrees(self._command_yaw), 2),
+                "measured_pitch_deg": round(math.degrees(self._measured_pitch), 2),
+                "measured_yaw_deg": round(math.degrees(self._measured_yaw), 2),
+                "publish_count": self._publish_count,
+                "last_write_ok": self._last_write_ok,
+            }
 
     def initialize(self) -> None:
         from unitree_sdk2py.core.channel import ChannelPublisher, ChannelSubscriber
@@ -83,6 +106,8 @@ class RobotNeckController:
         yaw = float(message.motor_state[HEAD_YAW].q)
         with self._lock:
             self._last_state_time = now
+            self._measured_pitch = pitch
+            self._measured_yaw = yaw
             if not self._state_ready.is_set():
                 for joint, kp, kd in zip(ARM_SDK_JOINTS, ARM_SDK_KP, ARM_SDK_KD):
                     motor_cmd = self._cmd.motor_cmd[joint]
@@ -96,6 +121,7 @@ class RobotNeckController:
                 self._command_pitch = pitch
                 self._command_yaw = yaw
                 self._state_ready.set()
+        self._feedback_updated.set()
 
     def start(self, timeout: float = 5.0) -> bool:
         if not self._state_ready.wait(timeout):
@@ -109,12 +135,14 @@ class RobotNeckController:
         self._thread.start()
         return True
 
-    def apply(self, action: str) -> tuple[float, float]:
+    def apply(self, action: str) -> dict[str, object]:
         with self._lock:
+            start_pitch = self._measured_pitch
+            start_yaw = self._measured_yaw
             if action == "neck_up":
-                self._target_pitch += STEP_RADIANS
-            elif action == "neck_down":
                 self._target_pitch -= STEP_RADIANS
+            elif action == "neck_down":
+                self._target_pitch += STEP_RADIANS
             elif action == "neck_left":
                 self._target_yaw += STEP_RADIANS
             elif action == "neck_right":
@@ -129,7 +157,46 @@ class RobotNeckController:
                 self._target_pitch, -PITCH_LIMIT, PITCH_LIMIT
             )
             self._target_yaw = clamp(self._target_yaw, -YAW_LIMIT, YAW_LIMIT)
-            return self._target_pitch, self._target_yaw
+            target_pitch = self._target_pitch
+            target_yaw = self._target_yaw
+
+        self._feedback_updated.clear()
+        deadline = time.monotonic() + MOVEMENT_TIMEOUT
+        while time.monotonic() < deadline:
+            self._feedback_updated.wait(0.1)
+            self._feedback_updated.clear()
+            with self._lock:
+                if self._fault is not None:
+                    raise RuntimeError(self._fault)
+                measured_pitch = self._measured_pitch
+                measured_yaw = self._measured_yaw
+
+            if action in {"neck_up", "neck_down"}:
+                moved = abs(measured_pitch - start_pitch) >= MOVEMENT_THRESHOLD
+                reached = abs(measured_pitch - target_pitch) <= TARGET_TOLERANCE
+            elif action in {"neck_left", "neck_right"}:
+                moved = abs(measured_yaw - start_yaw) >= MOVEMENT_THRESHOLD
+                reached = abs(measured_yaw - target_yaw) <= TARGET_TOLERANCE
+            else:
+                moved = (
+                    abs(measured_pitch - start_pitch) >= MOVEMENT_THRESHOLD
+                    or abs(measured_yaw - start_yaw) >= MOVEMENT_THRESHOLD
+                )
+                reached = (
+                    abs(measured_pitch - target_pitch) <= TARGET_TOLERANCE
+                    and abs(measured_yaw - target_yaw) <= TARGET_TOLERANCE
+                )
+            if moved or reached:
+                return self.status()
+
+        current = self.status()
+        raise RuntimeError(
+            "rt/arm_sdk published the neck target but rt/lowstate did not report "
+            f"movement within {MOVEMENT_TIMEOUT:g}s; target="
+            f"({current['target_pitch_deg']}, {current['target_yaw_deg']}) deg, "
+            f"measured=({current['measured_pitch_deg']}, "
+            f"{current['measured_yaw_deg']}) deg."
+        )
 
     def _prepare_command(self, weight: float) -> None:
         pitch_cmd = self._cmd.motor_cmd[HEAD_PITCH]
@@ -156,7 +223,13 @@ class RobotNeckController:
                     self._command_yaw, self._target_yaw, maximum_delta
                 )
                 self._prepare_command(1.0)
-            self._publisher.Write(self._cmd)
+            write_ok = bool(self._publisher.Write(self._cmd))
+            with self._lock:
+                self._publish_count += 1
+                self._last_write_ok = write_ok
+                if not write_ok:
+                    self._fault = "rt/arm_sdk publisher rejected the command"
+                    self._stop.set()
             next_tick += CONTROL_PERIOD
             self._stop.wait(max(0.0, next_tick - time.monotonic()))
 

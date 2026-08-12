@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { controlRobot, getRobotControlStatus, getRobotMode } from '../services/api'
 
 
@@ -57,9 +57,9 @@ export function RobotControlPanel() {
   const [mode, setMode] = useState(null)
   const [modeError, setModeError] = useState('')
   const [busyAction, setBusyAction] = useState('')
-  const [message, setMessage] = useState(null)
   const [confirmEnable, setConfirmEnable] = useState(false)
   const [controlLocked, setControlLocked] = useState(false)
+  const requestInFlight = useRef(false)
 
   useEffect(() => {
     let active = true
@@ -67,9 +67,7 @@ export function RobotControlPanel() {
       .then((result) => {
         if (active) setStatus(result)
       })
-      .catch((error) => {
-        if (active) setMessage({ type: 'error', text: error.message })
-      })
+      .catch(() => {})
     return () => {
       active = false
     }
@@ -96,8 +94,9 @@ export function RobotControlPanel() {
   }, [])
 
   const send = async (action) => {
+    if (requestInFlight.current) return
+    requestInFlight.current = true
     setBusyAction(action)
-    setMessage(null)
     try {
       const result = await controlRobot(action)
       setStatus(result)
@@ -108,18 +107,14 @@ export function RobotControlPanel() {
       } catch (error) {
         setModeError(error.message)
       }
-      setMessage({
-        type: 'success',
-        text: `${action.replace('_', ' ')} command sent.`,
-      })
-    } catch (error) {
-      setMessage({ type: 'error', text: error.message })
+    } catch {
       try {
         setStatus(await getRobotControlStatus())
       } catch {
-        // Keep the command error visible when status refresh also fails.
+        // Keep the last known control state when status refresh also fails.
       }
     } finally {
+      requestInFlight.current = false
       setBusyAction('')
     }
   }
@@ -127,11 +122,19 @@ export function RobotControlPanel() {
   const configured = Boolean(status?.configured)
   const isZeroTorqueMode = mode?.fsm_id === 0
   const isStanceMode = mode?.fsm_id === 4
-  const isLocomotionMode = mode?.fsm_id === 811
+  const isLocomotionMode = [811, 816].includes(mode?.fsm_id)
   const locomotionActive = isLocomotionMode && !controlLocked
+  const neckControlActive = Boolean(status?.neck_control_active)
   const canToggleStanceMode = isZeroTorqueMode || isStanceMode || isLocomotionMode
   const stanceModeAction = isStanceMode ? 'zero_torque' : 'stance'
-  const commandDisabled = !configured || !locomotionActive || Boolean(busyAction)
+  const commandDisabled = !configured || !locomotionActive
+  const neckModeBlocked = isZeroTorqueMode || isStanceMode
+  const neckEnableDisabled = (
+    !configured || (!neckControlActive && neckModeBlocked)
+  )
+  const neckCommandDisabled = (
+    !configured || !neckControlActive || neckModeBlocked
+  )
 
   const confirmLocomotion = () => {
     setConfirmEnable(false)
@@ -171,12 +174,6 @@ export function RobotControlPanel() {
           <i /> {locomotionActive ? 'Enabled' : 'Locked'}
         </span>
       </div>
-
-      {message && (
-        <p className={message.type === 'error' ? 'error-message' : 'success-message'}>
-          {message.text}
-        </p>
-      )}
 
       <p className="control-safety">
         Use only in a clear, flat area. Each movement command lasts one second.
@@ -241,6 +238,27 @@ export function RobotControlPanel() {
 
       <div className="robot-control-group">
         <h3>Vision <small>Neck movement</small></h3>
+        <button
+          type="button"
+          className={`button ${neckControlActive ? 'secondary' : 'primary'}`}
+          disabled={neckEnableDisabled}
+          onClick={() => send(neckControlActive ? 'neck_disable' : 'neck_enable')}
+        >
+          {busyAction === 'neck_enable'
+            ? 'Enabling neck control…'
+            : busyAction === 'neck_disable'
+              ? 'Releasing neck control…'
+              : neckControlActive
+                ? 'Release neck control'
+                : 'Enable neck control'}
+        </button>
+        <p className="mode-detail">
+          {neckControlActive
+            ? 'Neck controller is active. Use the controls below.'
+            : neckModeBlocked
+              ? 'Neck control is unavailable in stance or zero torque mode.'
+              : 'Enable neck control independently of an unknown FSM status.'}
+        </p>
         <div className="movement-pad vision-pad">
           {VISION_BUTTONS.map(([action, symbol, label], index) => (
             action ? (
@@ -248,7 +266,7 @@ export function RobotControlPanel() {
                 type="button"
                 className="movement-button"
                 key={action}
-                disabled={commandDisabled}
+                disabled={neckCommandDisabled}
                 onClick={() => send(action)}
                 title={label}
                 aria-label={label}
