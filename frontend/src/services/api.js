@@ -42,7 +42,9 @@ export const connectRobotCamera = () => (
   request('/api/robot/connect', { method: 'POST' })
 )
 
-export const getRobotStreamUrl = () => `${API_URL}/api/robot/stream`
+export const getRobotStreamUrl = (version = 0) => (
+  `${API_URL}/api/robot/stream?stream_version=${version}`
+)
 
 export async function getRobotSnapshot() {
   const response = await fetch(`${API_URL}/api/robot/snapshot`, { cache: 'no-store' })

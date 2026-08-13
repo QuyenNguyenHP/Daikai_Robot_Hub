@@ -137,6 +137,19 @@ The topic defaults to the built-in battery topic, and you can override it with:
 export UNITREE_BATTERY_TOPIC=...
 ```
 
+Live robot video is proxied as MJPEG from the newest camera frame. To keep
+small Jetson devices responsive, the browser stream defaults to 12 FPS and
+live recognition downsizes wide frames to 640 pixels before inference. Both
+limits are configurable before starting the backend:
+
+```bash
+export ROBOT_STREAM_FPS=12
+export FACE_RECOGNITION_MAX_WIDTH=640
+```
+
+`ROBOT_STREAM_FPS` is clamped to 1-30 and
+`FACE_RECOGNITION_MAX_WIDTH` is clamped to 320-1920.
+
 ### `robot_control.py`
 
 Provides bounded locomotion control and FSM mode queries for the Unitree R1.

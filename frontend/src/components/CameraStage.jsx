@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRobotStreamUrl } from '../services/api'
 
 
@@ -10,17 +11,55 @@ export function CameraStage({
   lastScan,
   onThresholdChange,
 }) {
+  const [streamVersion, setStreamVersion] = useState(0)
+  const streamRetryTimer = useRef(null)
+  const streamRetryDelay = useRef(1000)
   const showRecognitionDetails = (
     threshold !== undefined && typeof onThresholdChange === 'function'
   )
   const recognizedCount = detections.filter(({ name }) => name !== 'unknown').length
+
+  useEffect(() => () => {
+    if (streamRetryTimer.current !== null) {
+      window.clearTimeout(streamRetryTimer.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (source !== 'robot' || !cameraOn) {
+      if (streamRetryTimer.current !== null) {
+        window.clearTimeout(streamRetryTimer.current)
+        streamRetryTimer.current = null
+      }
+      streamRetryDelay.current = 1000
+    }
+  }, [cameraOn, source])
+
+  const handleRobotStreamLoad = useCallback(() => {
+    streamRetryDelay.current = 1000
+  }, [])
+
+  const handleRobotStreamError = useCallback(() => {
+    if (streamRetryTimer.current !== null) return
+    const delay = streamRetryDelay.current
+    streamRetryTimer.current = window.setTimeout(() => {
+      streamRetryTimer.current = null
+      setStreamVersion((version) => version + 1)
+    }, delay)
+    streamRetryDelay.current = Math.min(delay * 2, 5000)
+  }, [])
 
   return (
     <>
       <div className="camera-stage">
         {source === 'webcam' && <video ref={videoRef} muted playsInline />}
         {source === 'robot' && cameraOn && (
-          <img src={getRobotStreamUrl()} alt="Live stream from the Unitree R1 camera" />
+          <img
+            src={getRobotStreamUrl(streamVersion)}
+            alt="Live stream from the Unitree R1 camera"
+            onLoad={handleRobotStreamLoad}
+            onError={handleRobotStreamError}
+          />
         )}
         <div className="scanline" />
         {detections.map((item, index) => (

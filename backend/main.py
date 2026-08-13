@@ -260,7 +260,11 @@ def robot_stream(request: Request) -> StreamingResponse:
     return StreamingResponse(
         camera.mjpeg_stream(),
         media_type="multipart/x-mixed-replace; boundary=frame",
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

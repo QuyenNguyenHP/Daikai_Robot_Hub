@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -11,7 +12,6 @@ import numpy as np
 from backend.common import (
     FACES_DIR,
     MODELS_DIR,
-    cosine_similarity,
     create_detector,
     create_recognizer,
     ensure_data_dirs,
@@ -45,6 +45,23 @@ class FaceService:
         self.detector = create_detector((640, 480))
         self.recognizer = create_recognizer()
         self.lock = threading.RLock()
+        self.recognition_max_width = self._read_recognition_max_width()
+        self._names, self._embeddings = load_embeddings()
+        self._embedding_norms = self._norms(self._embeddings)
+
+    @staticmethod
+    def _read_recognition_max_width() -> int:
+        try:
+            value = int(os.getenv("FACE_RECOGNITION_MAX_WIDTH", "640"))
+        except ValueError:
+            return 640
+        return min(max(value, 320), 1920)
+
+    @staticmethod
+    def _norms(embeddings: np.ndarray) -> np.ndarray:
+        if embeddings.size == 0:
+            return np.empty((0,), dtype=np.float32)
+        return np.linalg.norm(embeddings, axis=1)
 
     @staticmethod
     def normalize_name(name: str) -> str:
@@ -96,28 +113,47 @@ class FaceService:
     ) -> dict[str, object]:
         """Recognize an already-decoded frame from an upload or live camera."""
         height, width = frame.shape[:2]
+        scale = min(1.0, self.recognition_max_width / width)
+        inference_frame = frame
+        if scale < 1.0:
+            inference_frame = cv2.resize(
+                frame,
+                (self.recognition_max_width, max(1, round(height * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
 
         with self.lock:
-            faces = self._detect_faces(frame)
-            names, embeddings = load_embeddings()
+            faces = self._detect_faces(inference_frame)
             detections: list[dict[str, object]] = []
 
             for face in faces:
-                feature = self._feature(frame, face)
+                feature = self._feature(inference_frame, face)
                 label = "unknown"
                 score = 0.0
-                if embeddings.size > 0:
-                    scores = [cosine_similarity(feature, known) for known in embeddings]
+                if self._embeddings.size > 0:
+                    feature_norm = np.linalg.norm(feature)
+                    denominators = self._embedding_norms * feature_norm
+                    scores = np.divide(
+                        self._embeddings @ feature,
+                        denominators,
+                        out=np.zeros_like(self._embedding_norms),
+                        where=denominators != 0,
+                    )
                     best_index = int(np.argmax(scores))
                     score = float(scores[best_index])
                     if score >= threshold:
-                        label = names[best_index]
+                        label = self._names[best_index]
+
+                output_face = face
+                if scale < 1.0:
+                    output_face = face.copy()
+                    output_face[:4] /= scale
 
                 detections.append(
                     {
                         "name": label,
                         "confidence": round(score, 4),
-                        "box": self._box(face, width, height),
+                        "box": self._box(output_face, width, height),
                     }
                 )
 
@@ -166,7 +202,8 @@ class FaceService:
 
             features = [item[1] for item in accepted]
             new_embedding = np.mean(np.stack(features), axis=0).astype(np.float32)
-            names, embeddings = load_embeddings()
+            names = list(self._names)
+            embeddings = self._embeddings.copy()
             if name in names:
                 embeddings[names.index(name)] = new_embedding
             else:
@@ -185,6 +222,9 @@ class FaceService:
                     cv2.imwrite(str(person_dir / f"web_{batch_id}_{index:02d}.jpg"), crop)
 
             save_embeddings(names, embeddings)
+            self._names = names
+            self._embeddings = embeddings
+            self._embedding_norms = self._norms(embeddings)
             metadata = load_metadata()
             metadata.setdefault("people", {})[name] = {
                 "samples": len(accepted),
@@ -201,10 +241,9 @@ class FaceService:
 
     def people(self) -> list[dict[str, object]]:
         with self.lock:
-            names, _ = load_embeddings()
             metadata = load_metadata().get("people", {})
             people: list[dict[str, object]] = []
-            for name in names:
+            for name in self._names:
                 details = metadata.get(name, {})
                 epoch = details.get("updated_at_epoch")
                 updated_at = None

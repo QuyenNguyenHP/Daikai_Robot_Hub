@@ -25,6 +25,15 @@ class RobotCameraService:
         self._last_frame_at: float | None = None
         self._state = "not_configured" if not self.network_interface else "stopped"
         self._error: str | None = None
+        self.stream_fps = self._read_stream_fps()
+
+    @staticmethod
+    def _read_stream_fps() -> float:
+        try:
+            value = float(os.getenv("ROBOT_STREAM_FPS", "12"))
+        except ValueError:
+            return 12.0
+        return min(max(value, 1.0), 30.0)
 
     def start(self) -> None:
         with self._condition:
@@ -123,6 +132,7 @@ class RobotCameraService:
                 "connected": self._state == "connected",
                 "frame_sequence": self._frame_sequence,
                 "last_frame_age_seconds": age,
+                "stream_fps": self.stream_fps,
                 "error": self._error,
             }
 
@@ -149,6 +159,7 @@ class RobotCameraService:
 
     def mjpeg_stream(self) -> Iterator[bytes]:
         sequence = -1
+        frame_interval = 1.0 / self.stream_fps
         while not self._stop_event.is_set():
             jpeg, sequence = self.wait_for_frame(sequence)
             if jpeg is None:
@@ -164,3 +175,7 @@ class RobotCameraService:
                 + jpeg
                 + b"\r\n"
             )
+            # Keep only the newest frame while waiting. This bounds JPEG/network
+            # work per browser without allowing an old-frame queue to build up.
+            if self._stop_event.wait(frame_interval):
+                break

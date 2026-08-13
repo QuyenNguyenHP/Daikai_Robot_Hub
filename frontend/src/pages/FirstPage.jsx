@@ -13,6 +13,9 @@ import { addImageDimensions, smoothDetections } from '../services/detections'
 
 const AUTO_SPEECH_CONFIDENCE = 0.55
 const ANNOUNCEMENT_COOLDOWN_MS = 15_000
+// Leave the Jetson a short idle window after each inference. The effective
+// recognition period is the request latency plus this cooldown.
+const RECOGNITION_COOLDOWN_MS = 700
 
 
 function formatNames(names) {
@@ -94,30 +97,33 @@ export function FirstPage() {
   useEffect(() => {
     if (!running || !camera.cameraOn) return undefined
     let active = true
+    let timer = null
 
     const scan = async () => {
-      if (recognitionBusy.current) return
-      recognitionBusy.current = true
-      try {
-        const result = await recognizeRobotFrame(threshold)
-        if (!active) return
-        const current = addImageDimensions(result)
-        setDetections((previous) => smoothDetections(previous, current))
-        setLastScan(new Date())
-        setScanError('')
-        announceDetections(current)
-      } catch (error) {
-        if (active) setScanError(error.message)
-      } finally {
-        recognitionBusy.current = false
+      if (!recognitionBusy.current) {
+        recognitionBusy.current = true
+        try {
+          const result = await recognizeRobotFrame(threshold)
+          if (!active) return
+          const current = addImageDimensions(result)
+          setDetections((previous) => smoothDetections(previous, current))
+          setLastScan(new Date())
+          setScanError('')
+          announceDetections(current)
+        } catch (error) {
+          if (active) setScanError(error.message)
+        } finally {
+          recognitionBusy.current = false
+        }
       }
+
+      if (active) timer = window.setTimeout(scan, RECOGNITION_COOLDOWN_MS)
     }
 
-    scan()
-    const timer = window.setInterval(scan, 300)
+    void scan()
     return () => {
       active = false
-      window.clearInterval(timer)
+      if (timer !== null) window.clearTimeout(timer)
     }
   }, [
     announceDetections,
