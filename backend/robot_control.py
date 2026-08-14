@@ -90,7 +90,7 @@ class RobotControlService:
         self._arm_client = None
         self._arm_actions: dict[int, str] | None = None
         self._arm_action_active = False
-        self._neck_controller = None
+        self._upper_body_controller = None
         self._locomotion_started = False
         self._last_fsm_id: int | None = None
         try:
@@ -120,7 +120,7 @@ class RobotControlService:
                 "accepted_locomotion_fsm_ids": sorted(LOCOMOTION_FSM_IDS),
                 "preferred_locomotion_fsm_id": self._preferred_locomotion_fsm_id,
                 "arm_action_active": self._arm_action_active,
-                "neck_control_active": self._neck_controller is not None,
+                "upper_body_control_active": self._upper_body_controller is not None,
                 "last_action": self._last_action,
                 "last_code": self._last_code,
                 "error": self._error,
@@ -129,9 +129,11 @@ class RobotControlService:
                 "lateral_speed_mps": LATERAL_SPEED,
                 "turn_speed_radps": TURN_SPEED,
             }
-        neck_controller = self._neck_controller
-        payload["neck"] = (
-            neck_controller.status() if neck_controller is not None else None
+        upper_body_controller = self._upper_body_controller
+        payload["upper_body"] = (
+            upper_body_controller.status()
+            if upper_body_controller is not None
+            else None
         )
         return payload
 
@@ -221,23 +223,24 @@ class RobotControlService:
         self._require_success(code, action_name)
         return code
 
-    def _release_neck(self) -> None:
-        if self._neck_controller is not None:
-            self._neck_controller.close()
-            self._neck_controller = None
+    def _release_upper_body(self) -> None:
+        if self._upper_body_controller is not None:
+            self._upper_body_controller.close()
+            self._upper_body_controller = None
 
-    def _neck_controller_instance(self):
-        if self._neck_controller is not None:
-            if self._neck_controller.fault is None:
-                return self._neck_controller
-            self._release_neck()
+    def _upper_body_controller_instance(self):
+        if self._upper_body_controller is not None:
+            if self._upper_body_controller.fault is None:
+                return self._upper_body_controller
+            self._release_upper_body()
         try:
-            from backend.robot_neck import RobotNeckController
+            from backend.robot_upper_body import RobotUpperBodyController
 
             # Locomotion remains on the high-level LocoClient (FSM 811/816), while
-            # the neck uses the separate rt/arm_sdk channel. Do not call the arm
+            # upper-body control uses the separate rt/arm_sdk channel. Do not call
+            # the arm
             # RPC on first use: that unnecessary round trip plus the old fixed
-            # wait made the first neck command appear frozen. Only hand ownership
+            # wait made the first command appear frozen. Only hand ownership
             # back when this process actually started an arm action earlier.
             with self._state_lock:
                 arm_action_active = self._arm_action_active
@@ -246,30 +249,33 @@ class RobotControlService:
                 with self._state_lock:
                     self._arm_action_active = False
                 time.sleep(ARM_RELEASE_SETTLE_TIME)
-            controller = RobotNeckController()
+            controller = RobotUpperBodyController()
             controller.initialize()
             if not controller.start():
                 controller.close()
                 raise RobotControlError(
-                    "Timed out waiting for robot joint feedback; neck control did not start."
+                    "Timed out waiting for robot joint feedback; upper-body control "
+                    "did not start."
                 )
         except RobotControlError:
             raise
         except Exception as exc:
-            raise RobotControlError(f"Could not initialize neck control: {exc}") from exc
-        self._neck_controller = controller
+            raise RobotControlError(
+                f"Could not initialize upper-body control: {exc}"
+            ) from exc
+        self._upper_body_controller = controller
         return controller
 
-    def _active_neck_controller(self):
-        controller = self._neck_controller
+    def _active_upper_body_controller(self):
+        controller = self._upper_body_controller
         if controller is None:
             raise RobotControlStateError(
-                "Enable neck control before sending neck movement commands."
+                "Enable upper-body control before sending joint commands."
             )
         if controller.fault is not None:
             fault = controller.fault
-            self._release_neck()
-            raise RobotControlError(f"Neck control stopped: {fault}")
+            self._release_upper_body()
+            raise RobotControlError(f"Upper-body control stopped: {fault}")
         return controller
 
     @staticmethod
@@ -367,13 +373,13 @@ class RobotControlService:
                     # Some R1 firmware returns 127 for this best-effort stop
                     # while still accepting the following FSM transition.
                     client.SetVelocity(0.0, 0.0, 0.0, COMMAND_DURATION)
-                self._release_neck()
+                self._release_upper_body()
                 code = client.SetFsmId(4)
                 self._require_success(code, "enter stance mode")
                 self._set_fsm_state(4)
 
             elif action == "zero_torque":
-                self._release_neck()
+                self._release_upper_body()
                 code = client.SetFsmId(0)
                 self._require_success(code, "enter zero torque mode")
                 self._set_fsm_state(0)
@@ -389,7 +395,7 @@ class RobotControlService:
                 self._set_fsm_state(locomotion_fsm_id)
 
             elif action == "disable":
-                self._release_neck()
+                self._release_upper_body()
                 code = client.SetVelocity(0.0, 0.0, 0.0, COMMAND_DURATION)
                 self._require_success(code, "disable control")
                 code = client.SetFsmId(4)
@@ -407,14 +413,14 @@ class RobotControlService:
                 code = client.SetVelocity(vx, vy, omega, COMMAND_DURATION)
                 self._require_success(code, action)
 
-            elif action == "neck_enable":
+            elif action in {"upper_body_enable", "neck_enable"}:
                 self._require_locomotion(client)
-                controller = self._neck_controller_instance()
-                details["neck"] = controller.status()
+                controller = self._upper_body_controller_instance()
+                details["upper_body"] = controller.status()
                 code = 0
 
-            elif action == "neck_disable":
-                self._release_neck()
+            elif action in {"upper_body_disable", "neck_disable"}:
+                self._release_upper_body()
                 code = 0
 
             elif action in NECK_ACTIONS:
@@ -424,16 +430,16 @@ class RobotControlService:
                 # valid movement command is not rejected solely because the
                 # in-memory controller instance was lost.
                 controller = (
-                    self._active_neck_controller()
-                    if self._neck_controller is not None
-                    else self._neck_controller_instance()
+                    self._active_upper_body_controller()
+                    if self._upper_body_controller is not None
+                    else self._upper_body_controller_instance()
                 )
-                details["neck"] = controller.apply(action)
+                details["upper_body"] = controller.apply_neck_action(action)
                 code = 0
 
             elif action in ARM_ACTIONS:
                 self._require_locomotion(client)
-                self._release_neck()
+                self._release_upper_body()
                 action_name = ARM_ACTIONS[action]
                 code = self._execute_arm_action(action_name)
                 with self._state_lock:
@@ -454,6 +460,43 @@ class RobotControlService:
             self._lock.release()
         return {"ok": True, "action": action, **details, **self.status()}
 
+    def set_upper_body_joint(
+        self,
+        joint_index: int,
+        position: float,
+    ) -> dict[str, object]:
+        """Set one bounded upper-body joint target in radians."""
+        if not self._lock.acquire(blocking=False):
+            raise RobotControlBusyError("Another robot control command is running.")
+
+        action = f"upper_body_joint_{joint_index}"
+        try:
+            client = self._client_instance()
+            self._require_locomotion(client)
+            controller = self._active_upper_body_controller()
+            upper_body = controller.set_joint_target(joint_index, position)
+            self._set_result(action, code=0)
+            result = {
+                "ok": True,
+                "action": action,
+                "joint_index": joint_index,
+                "position": position,
+                "upper_body": upper_body,
+            }
+        except ValueError as exc:
+            self._set_result(action, error=str(exc))
+            raise
+        except RobotControlError as exc:
+            self._set_result(action, error=str(exc))
+            raise
+        except Exception as exc:
+            message = f"Upper-body control failed: {exc}"
+            self._set_result(action, error=message)
+            raise RobotControlError(message) from exc
+        finally:
+            self._lock.release()
+        return {**result, **self.status()}
+
     def mode(self) -> dict[str, object]:
         """Query the robot's registered FSM mode through locomotion API 7001."""
         if not self._lock.acquire(blocking=False):
@@ -468,8 +511,8 @@ class RobotControlService:
             client = self._client_instance()
             fsm_id = self._fsm_id(client)
             self._set_fsm_state(fsm_id)
-            # Status endpoints must be read-only. Neck ownership is released by
-            # explicit commands (neck_disable, stance, zero_torque, disable),
+            # Status endpoints must be read-only. Upper-body ownership is released
+            # by explicit commands (upper_body_disable, stance, zero_torque, disable),
             # never by the frontend's two-second mode polling.
             return self._mode_payload(fsm_id, control_busy=False, stale=False)
         except RobotControlError:
@@ -482,7 +525,7 @@ class RobotControlService:
     def stop(self) -> None:
         """Send a final stop during shutdown when the client was initialized."""
         client = self._client
-        self._release_neck()
+        self._release_upper_body()
         if client is None:
             return
         with self._lock:

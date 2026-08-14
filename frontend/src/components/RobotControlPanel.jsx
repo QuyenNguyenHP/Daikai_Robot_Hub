@@ -14,18 +14,6 @@ const MOVEMENT_BUTTONS = [
   [null, '', ''],
 ]
 
-const VISION_BUTTONS = [
-  [null, '', ''],
-  ['neck_up', '↑', 'Look up'],
-  [null, '', ''],
-  ['neck_left', '←', 'Look left'],
-  ['neck_center', '●', 'Center'],
-  ['neck_right', '→', 'Look right'],
-  [null, '', ''],
-  ['neck_down', '↓', 'Look down'],
-  [null, '', ''],
-]
-
 const ACTION_BUTTONS = [
   ['arm_blow_kiss_both', '💋', 'Both-hand kiss', 11],
   ['arm_blow_kiss_left', '💋', 'Left-hand kiss', 12],
@@ -58,6 +46,7 @@ export function RobotControlPanel() {
   const [modeError, setModeError] = useState('')
   const [busyAction, setBusyAction] = useState('')
   const [confirmEnable, setConfirmEnable] = useState(false)
+  const [confirmStance, setConfirmStance] = useState(false)
   const [controlLocked, setControlLocked] = useState(false)
   const requestInFlight = useRef(false)
 
@@ -124,17 +113,9 @@ export function RobotControlPanel() {
   const isStanceMode = mode?.fsm_id === 4
   const isLocomotionMode = [811, 816].includes(mode?.fsm_id)
   const locomotionActive = isLocomotionMode && !controlLocked
-  const neckControlActive = Boolean(status?.neck_control_active)
   const canToggleStanceMode = isZeroTorqueMode || isStanceMode || isLocomotionMode
   const stanceModeAction = isStanceMode ? 'zero_torque' : 'stance'
   const commandDisabled = !configured || !locomotionActive
-  const neckModeBlocked = isZeroTorqueMode || isStanceMode
-  const neckEnableDisabled = (
-    !configured || (!neckControlActive && neckModeBlocked)
-  )
-  const neckCommandDisabled = (
-    !configured || !neckControlActive || neckModeBlocked
-  )
 
   const confirmLocomotion = () => {
     setConfirmEnable(false)
@@ -145,20 +126,16 @@ export function RobotControlPanel() {
     void send(action)
   }
 
+  const confirmStanceMode = () => {
+    setConfirmStance(false)
+    setControlLocked(true)
+    void send('stance')
+  }
+
   const toggleStanceMode = () => {
     if (isLocomotionMode) {
-      setControlLocked(true)
-      setStatus((current) => ({
-        ...current,
-        locomotion_started: false,
-      }))
-      setMode({
-        configured,
-        fsm_id: 4,
-        fsm_name: 'STANCE',
-        display: 'STANCE (ID 4)',
-      })
-      setModeError('')
+      setConfirmStance(true)
+      return
     }
     sendModeAction(stanceModeAction)
   }
@@ -237,49 +214,6 @@ export function RobotControlPanel() {
       </div>
 
       <div className="robot-control-group">
-        <h3>Vision <small>Neck movement</small></h3>
-        <button
-          type="button"
-          className={`button ${neckControlActive ? 'secondary' : 'primary'}`}
-          disabled={neckEnableDisabled}
-          onClick={() => send(neckControlActive ? 'neck_disable' : 'neck_enable')}
-        >
-          {busyAction === 'neck_enable'
-            ? 'Enabling neck control…'
-            : busyAction === 'neck_disable'
-              ? 'Releasing neck control…'
-              : neckControlActive
-                ? 'Release neck control'
-                : 'Enable neck control'}
-        </button>
-        <p className="mode-detail">
-          {neckControlActive
-            ? 'Neck controller is active. Use the controls below.'
-            : neckModeBlocked
-              ? 'Neck control is unavailable in stance or zero torque mode.'
-              : 'Enable neck control independently of an unknown FSM status.'}
-        </p>
-        <div className="movement-pad vision-pad">
-          {VISION_BUTTONS.map(([action, symbol, label], index) => (
-            action ? (
-              <button
-                type="button"
-                className="movement-button"
-                key={action}
-                disabled={neckCommandDisabled}
-                onClick={() => send(action)}
-                title={label}
-                aria-label={label}
-              >
-                <strong>{symbol}</strong>
-                <span>{label}</span>
-              </button>
-            ) : <span key={`vision-empty-${index}`} />
-          ))}
-        </div>
-      </div>
-
-      <div className="robot-control-group">
         <h3>Action</h3>
         <div className="action-pad">
           {ACTION_BUTTONS.map(([action, symbol, label, actionId]) => (
@@ -303,6 +237,40 @@ export function RobotControlPanel() {
       )}
       {modeError && configured && (
         <p className="mode-detail">{modeError}</p>
+      )}
+      {confirmStance && (
+        <div className="control-dialog-backdrop" role="presentation">
+          <div
+            className="control-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stance-warning-title"
+          >
+            <p className="eyebrow">SAFETY WARNING</p>
+            <h3 id="stance-warning-title">
+              Please support the robot before turning to stance mode.
+            </h3>
+            <p>
+              The robot may lose active balance while switching out of locomotion.
+            </p>
+            <div className="control-dialog-actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setConfirmStance(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button primary"
+                onClick={confirmStanceMode}
+              >
+                Enter stance mode
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {confirmEnable && (
         <div className="control-dialog-backdrop" role="presentation">

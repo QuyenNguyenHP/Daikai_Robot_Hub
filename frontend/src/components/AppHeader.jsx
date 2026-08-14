@@ -27,7 +27,7 @@ export function AppHeader({ currentPage, health, onNavigate }) {
       </nav>
       <div className={`api-status ${health ? 'online' : ''}`}>
         <i />
-        {health ? `API online · ${health.people_count} people` : 'API offline'}
+        {health ? 'API online' : 'API offline'}
       </div>
     </header>
   )

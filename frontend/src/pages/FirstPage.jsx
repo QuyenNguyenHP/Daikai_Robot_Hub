@@ -3,6 +3,7 @@ import { BatteryStatus } from '../components/BatteryStatus'
 import { CameraStage } from '../components/CameraStage'
 import { RobotSpeechPanel } from '../components/RobotSpeechPanel'
 import { RobotControlPanel } from '../components/RobotControlPanel'
+import { RobotUpperBodyControl } from '../components/robot_upper_body_control'
 import { useCameraSource } from '../hooks/useCameraSource'
 import {
   recognizeRobotFrame,
@@ -208,6 +209,10 @@ export function FirstPage() {
               onSpeak={speak}
               onToggleAuto={toggleAutoSpeech}
             />
+          </div>
+
+          <div className="panel upper-body-panel">
+            <RobotUpperBodyControl />
           </div>
         </div>
 

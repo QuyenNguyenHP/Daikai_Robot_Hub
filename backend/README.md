@@ -228,6 +228,7 @@ It is not imported by the running backend.
 | `GET`  | `/api/robot/control/status`  | Current locomotion-control service status |
 | `GET`  | `/api/robot/mode`            | Current Unitree FSM mode |
 | `POST` | `/api/robot/control`         | Send one bounded locomotion command |
+| `POST` | `/api/robot/upper-body`      | Set one upper-body joint target in radians |
 | `POST` | `/api/robot/connect`         | Start the shared Unitree camera client |
 | `GET`  | `/api/robot/snapshot`        | Return the newest Unitree JPEG |
 | `GET`  | `/api/robot/stream`          | Return a live MJPEG stream |

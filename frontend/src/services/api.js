@@ -38,6 +38,14 @@ export function controlRobot(action) {
   })
 }
 
+export function setRobotUpperBodyJoint(jointIndex, position) {
+  return request('/api/robot/upper-body', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ joint_index: jointIndex, position }),
+  })
+}
+
 export const connectRobotCamera = () => (
   request('/api/robot/connect', { method: 'POST' })
 )

@@ -37,7 +37,7 @@ export default function App() {
         {page === 'recognize' && <FirstPage />}
         {page === 'enroll' && <EnrollmentPage onEnrolled={refreshData} />}
       </main>
-      <footer>DAIKAI ROBOT HUB · Images and embeddings stay on this machine</footer>
+      <footer>DAIKAI ROBOT HUB</footer>
     </div>
   )
 }

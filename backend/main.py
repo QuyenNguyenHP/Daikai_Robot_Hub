@@ -111,6 +111,8 @@ class ControlRequest(BaseModel):
         "stop",
         "neck_enable",
         "neck_disable",
+        "upper_body_enable",
+        "upper_body_disable",
         "neck_up",
         "neck_down",
         "neck_left",
@@ -139,6 +141,11 @@ class ControlRequest(BaseModel):
         "arm_forward_push",
         "arm_release",
     ]
+
+
+class UpperBodyJointRequest(BaseModel):
+    joint_index: int
+    position: float
 
 
 async def read_image(upload: UploadFile) -> bytes:
@@ -217,6 +224,24 @@ def robot_mode(request: Request) -> dict[str, object]:
 def control_robot(request: Request, payload: ControlRequest) -> dict[str, object]:
     try:
         return robot_control(request).execute(payload.action)
+    except (RobotControlBusyError, RobotControlStateError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotControlError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/robot/upper-body")
+def control_robot_upper_body(
+    request: Request,
+    payload: UpperBodyJointRequest,
+) -> dict[str, object]:
+    try:
+        return robot_control(request).set_upper_body_joint(
+            payload.joint_index,
+            payload.position,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except (RobotControlBusyError, RobotControlStateError) as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except RobotControlError as error:
