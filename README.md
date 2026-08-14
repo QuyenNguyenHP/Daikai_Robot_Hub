@@ -561,6 +561,71 @@ data/metadata.json
 The default threshold is `0.45`. Raise it to reduce false positives, or lower
 it if the system struggles to recognize already enrolled people.
 
+## Khởi động với Wi-Fi `wlp2s0` và robot Ethernet `eth10`
+
+Hướng dẫn này dùng khi máy chạy Daikai Robot Hub có địa chỉ
+`192.168.0.177` trên `wlp2s0`, các thiết bị khác trong cùng mạng cần truy cập
+frontend, và robot được kết nối riêng qua `eth10`.
+
+### Terminal backend
+
+Từ thư mục gốc của dự án, cấu hình CORS cho frontend trong mạng LAN và cho
+FastAPI lắng nghe trên tất cả địa chỉ mạng:
+
+```bash
+cd /home/r1-edu/Documents/r1_robot_development
+
+export FR_CORS_ORIGINS=http://192.168.0.177:5173,http://localhost:5173,http://127.0.0.1:5173
+
+python3 -m backend eth10 --host 0.0.0.0 --port 8000
+```
+
+Tham số `eth10` cấu hình network interface kết nối robot cho Unitree SDK.
+`--host 0.0.0.0` cho FastAPI lắng nghe trên cả `eth10`, `wlp2s0` và loopback,
+do đó các thiết bị trong Wi-Fi vẫn truy cập backend qua `192.168.0.177:8000`.
+Hãy chạy lệnh bằng Python environment đã cài `unitree_sdk2py`.
+
+### Terminal frontend
+
+Frontend phải gọi IP của máy backend thay vì `localhost`, vì trên điện thoại
+hoặc laptop khác, `localhost` sẽ trỏ về chính thiết bị đang mở trình duyệt.
+
+```bash
+cd /home/r1-edu/Documents/r1_robot_development/frontend
+
+VITE_API_URL=http://192.168.0.177:8000 npm run dev
+```
+
+Sau khi thay đổi `VITE_API_URL`, phải dừng và khởi động lại Vite. Trên thiết bị
+khác trong cùng mạng, mở:
+
+```text
+http://192.168.0.177:5173
+```
+
+Kiểm tra backend trực tiếp tại:
+
+```text
+http://192.168.0.177:8000/api/health
+http://192.168.0.177:8000/docs
+```
+
+Kiểm tra hai dịch vụ đang lắng nghe trên LAN:
+
+```bash
+ip -4 addr show wlp2s0
+ip -4 addr show eth10
+ss -lntp | grep -E ':5173|:8000'
+```
+
+Kết quả cần có `0.0.0.0:5173` và `0.0.0.0:8000`. Nếu UFW đang hoạt động,
+chỉ mở hai cổng cho subnet nội bộ:
+
+```bash
+sudo ufw allow from 192.168.0.0/24 to any port 5173 proto tcp
+sudo ufw allow from 192.168.0.0/24 to any port 8000 proto tcp
+```
+
 ## Common issues
 
 ### `unitree_sdk2py` cannot be imported
