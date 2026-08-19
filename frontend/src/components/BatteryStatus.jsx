@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getRobotBattery } from '../services/api'
+import { getRobotBatteryWebSocketUrl } from '../services/api'
 
 
 function BatteryIcon({ percent = 0, connected }) {
@@ -21,21 +21,38 @@ export function BatteryStatus() {
 
   useEffect(() => {
     let active = true
-    const refresh = async () => {
-      try {
-        const result = await getRobotBattery()
+    let socket = null
+    let reconnectTimer = null
+    let reconnectDelay = 1000
+
+    const connect = () => {
+      socket = new WebSocket(getRobotBatteryWebSocketUrl())
+      socket.onopen = () => {
+        reconnectDelay = 1000
+        if (active) setError('')
+      }
+      socket.onmessage = (event) => {
         if (!active) return
-        setStatus(result)
-        setError('')
-      } catch (requestError) {
-        if (active) setError(requestError.message)
+        try {
+          setStatus(JSON.parse(event.data))
+          setError('')
+        } catch {
+          setError('The battery status update could not be decoded.')
+        }
+      }
+      socket.onclose = () => {
+        if (!active) return
+        setError('Battery status connection lost. Reconnecting…')
+        reconnectTimer = window.setTimeout(connect, reconnectDelay)
+        reconnectDelay = Math.min(reconnectDelay * 2, 5000)
       }
     }
-    refresh()
-    const timer = window.setInterval(refresh, 2000)
+
+    connect()
     return () => {
       active = false
-      window.clearInterval(timer)
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close()
     }
   }, [])
 

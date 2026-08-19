@@ -4,6 +4,7 @@ import { CameraStage } from '../components/CameraStage'
 import { RobotSpeechPanel } from '../components/RobotSpeechPanel'
 import { RobotControlPanel } from '../components/RobotControlPanel'
 import { RobotUpperBodyControl } from '../components/robot_upper_body_control'
+import { RobotLedPanel } from '../components/RobotLedPanel'
 import { useCameraSource } from '../hooks/useCameraSource'
 import {
   recognizeRobotFrame,
@@ -210,6 +211,8 @@ export function FirstPage() {
               onToggleAuto={toggleAutoSpeech}
             />
           </div>
+
+          <RobotLedPanel />
 
           <div className="panel upper-body-panel">
             <RobotUpperBodyControl />

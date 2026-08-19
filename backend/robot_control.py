@@ -8,6 +8,8 @@ import os
 import threading
 import time
 
+from backend.unitree_dds import UNITREE_DDS_INIT_LOCK
+
 
 COMMAND_DURATION = 1.0
 LINEAR_SPEED = 0.5
@@ -152,10 +154,11 @@ class RobotControlService:
             ) from exc
 
         try:
-            ChannelFactoryInitialize(0, self.network_interface)
-            client = LocoClient()
-            client.SetTimeout(3.0)
-            client.Init()
+            with UNITREE_DDS_INIT_LOCK:
+                ChannelFactoryInitialize(0, self.network_interface)
+                client = LocoClient()
+                client.SetTimeout(3.0)
+                client.Init()
         except Exception as exc:
             raise RobotControlError(
                 f"Could not initialize the Unitree locomotion client: {exc}"

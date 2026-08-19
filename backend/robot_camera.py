@@ -5,6 +5,8 @@ import threading
 import time
 from typing import Iterator
 
+from backend.unitree_dds import UNITREE_DDS_INIT_LOCK
+
 
 class RobotCameraError(RuntimeError):
     """Raised when a frame cannot be obtained from the Unitree camera."""
@@ -85,10 +87,11 @@ class RobotCameraService:
             return
 
         try:
-            ChannelFactoryInitialize(0, self.network_interface)
-            client = VideoClient()
-            client.SetTimeout(3.0)
-            client.Init()
+            with UNITREE_DDS_INIT_LOCK:
+                ChannelFactoryInitialize(0, self.network_interface)
+                client = VideoClient()
+                client.SetTimeout(3.0)
+                client.Init()
         except Exception as exc:
             self._set_error(f"Could not initialize the Unitree camera: {exc}", terminal=True)
             return

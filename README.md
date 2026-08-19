@@ -36,6 +36,138 @@ Details for each backend Python file are in [`backend/README.md`](backend/README
 Instructions for LAN access through Apache2 are in
 [`APACHE2_LAN_SETUP_vi.md`](APACHE2_LAN_SETUP_vi.md).
 
+## YOLO-World stereo deployment
+
+The Object Distance page uses three files from the stereo reference folder:
+
+| File                          | Purpose                                            | Current location                                                                              |
+| ----------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `yolov8s-worldv2.pt`        | YOLO-World object detector                         | `backend/models/yolov8s-worldv2.pt`                                                         |
+| `weights/clip/ViT-B-32.pt`  | Text encoder used by`set_classes()`              | `/home/r1-edu/unitree_sdk2_python/my_script/r1_yolo_world_stereo/weights/clip/ViT-B-32.pt`  |
+| `r1_stereo_calibration.npz` | R1 stereo intrinsics, extrinsics, and metric scale | `/home/r1-edu/unitree_sdk2_python/my_script/r1_yolo_world_stereo/r1_stereo_calibration.npz` |
+
+The current PC already has all three files. The YOLO model is approximately
+25 MB, the CLIP encoder is approximately 338 MB, and the calibration is small.
+No model download is required on this PC.
+
+### Prepare a new PC
+
+Install the project dependencies first:
+
+```bash
+cd /path/to/r1_robot_development
+python3 -m pip install -r requirements.txt
+
+cd frontend
+npm install
+```
+
+If the backend reports `No module named 'ultralytics'`, install Ultralytics
+with the same Python interpreter used to launch the backend:
+
+```bash
+python3 -m pip install "ultralytics>=8.3.0"
+python3 -c "import ultralytics; print(ultralytics.__version__)"
+```
+
+Create a directory for the stereo assets. It must also contain
+`r1_stereo_common.py` from the reference implementation:
+
+```bash
+mkdir -p "$HOME/r1_yolo_world_stereo"
+cp /path/to/r1_stereo_common.py "$HOME/r1_yolo_world_stereo/"
+cd "$HOME/r1_yolo_world_stereo"
+```
+
+With internet access, the official Ultralytics Python API downloads
+`yolov8s-worldv2.pt` when the named pretrained model is first loaded. Download
+it directly into the project's backend model directory:
+
+```bash
+cd /path/to/r1_robot_development/backend/models
+
+python3 - <<'PY'
+from ultralytics import YOLOWorld
+
+model = YOLOWorld("yolov8s-worldv2.pt")
+print("YOLO-World model is ready")
+PY
+```
+
+YOLO-World also requires the CLIP encoder when setting open-vocabulary class
+prompts. Run this from the stereo asset directory so the encoder is downloaded
+to `weights/clip/`, where the backend expects it:
+
+```bash
+cd "$HOME/r1_yolo_world_stereo"
+
+python3 - <<'PY'
+from ultralytics import YOLOWorld
+
+model = YOLOWorld("/path/to/r1_robot_development/backend/models/yolov8s-worldv2.pt")
+model.set_classes(["person", "chair", "bottle", "cup", "table", "door", "box"])
+print("CLIP encoder is ready")
+PY
+```
+
+After both commands finish, verify the files:
+
+```bash
+ls -lh \
+  "/path/to/r1_robot_development/backend/models/yolov8s-worldv2.pt" \
+  "$HOME/r1_yolo_world_stereo/weights/clip/ViT-B-32.pt"
+```
+
+The stereo calibration cannot be replaced by a generic download. It contains
+measurements for the particular R1 stereo cameras and determines the scale of
+the reported distance. Copy the tested calibration from the current PC:
+
+```bash
+scp r1-edu@CURRENT_PC_IP:/home/r1-edu/unitree_sdk2_python/my_script/r1_yolo_world_stereo/r1_stereo_calibration.npz \
+  "$HOME/r1_yolo_world_stereo/"
+```
+
+Alternatively, copy the project and the entire tested reference directory to
+the new PC; this avoids downloading the YOLO and CLIP files again:
+
+```bash
+rsync -av \
+  r1-edu@CURRENT_PC_IP:/home/r1-edu/unitree_sdk2_python/my_script/r1_yolo_world_stereo/ \
+  "$HOME/r1_yolo_world_stereo/"
+```
+
+### Start the application on the new PC
+
+Point the backend at the new asset directory before starting it. Replace
+`ROBOT_INTERFACE` with the Ethernet interface connected to the R1, such as
+`enx00051b901cbf`:
+
+```bash
+cd /path/to/r1_robot_development
+
+export R1_STEREO_SOURCE_DIR="$HOME/r1_yolo_world_stereo"
+export R1_STEREO_CALIBRATION="$R1_STEREO_SOURCE_DIR/r1_stereo_calibration.npz"
+
+python3 backend ROBOT_INTERFACE --host 0.0.0.0 --port 8000
+```
+
+The backend automatically loads `backend/models/yolov8s-worldv2.pt`. Set
+`R1_YOLO_WORLD_MODEL` only when storing that file somewhere else.
+
+In another terminal:
+
+```bash
+cd /path/to/r1_robot_development/frontend
+npm run dev
+```
+
+Open `http://localhost:5173`, enable the robot's stereo push service from the
+System Services page, open Object Distance, and select **Start detection**.
+Both UDP streams on ports 5002 and 5003 must reach the new PC.
+
+The model-loading and custom-class API used here follows the official
+[Ultralytics YOLO-World documentation](https://docs.ultralytics.com/models/yolo-world/).
+
 ## General frontend style
 
 The frontend uses a dark, futuristic operations-dashboard style. The visual
@@ -484,7 +616,7 @@ source ~/unitree_sdk2_python/.venv/bin/activate
 export CYCLONEDDS_HOME="$HOME/cyclonedds/install"
 export CMAKE_PREFIX_PATH="$CYCLONEDDS_HOME:$CMAKE_PREFIX_PATH"
 export LD_LIBRARY_PATH="$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH"
-export UNITREE_NETWORK_INTERFACE=enxa0cec86d95d6
+export UNITREE_NETWORK_INTERFACE=enx00051b901cbf
 
 python backend/app.py
 ```

@@ -71,7 +71,7 @@ The integration is implemented in:
 - [`backend/robot_camera.py`](backend/robot_camera.py)
 - [`backend/robot_control.py`](backend/robot_control.py)
 - [`backend/robot_battery.py`](backend/robot_battery.py)
-- [`backend/robot_speech.py`](backend/robot_speech.py)
+- [`backend/robot_audio.py`](backend/robot_audio.py)
 
 The Unitree SDK is an optional external dependency and is loaded only when robot functionality is used. It is not listed in the project's main `requirements.txt` because it has a separate installation process.
 
@@ -153,4 +153,3 @@ Based on the current source code and dependency manifests, the project does not 
 - WebSockets
 - Docker or Docker Compose
 - A cloud hosting SDK
-

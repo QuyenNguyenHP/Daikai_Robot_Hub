@@ -1,3 +1,5 @@
+sudo systemctl reload apache2
+
 # Deploy Daikai Robot Hub with Apache2 and Access It from Other LAN Devices
 
 This guide explains how to deploy **both the backend and frontend on an Ubuntu

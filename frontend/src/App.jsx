@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppHeader } from './components/AppHeader'
 import { EnrollmentPage } from './pages/EnrollmentPage'
 import { FirstPage } from './pages/FirstPage'
+import { SystemServicesPage } from './pages/SystemServicesPage'
+import { ObjectDistancePage } from './pages/ObjectDistancePage'
 import { getHealth } from './services/api'
 
 
@@ -36,6 +38,8 @@ export default function App() {
         )}
         {page === 'recognize' && <FirstPage />}
         {page === 'enroll' && <EnrollmentPage onEnrolled={refreshData} />}
+        {page === 'object-distance' && <ObjectDistancePage />}
+        {page === 'services' && <SystemServicesPage />}
       </main>
       <footer>DAIKAI ROBOT HUB</footer>
     </div>

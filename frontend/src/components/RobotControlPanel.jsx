@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { controlRobot, getRobotControlStatus, getRobotMode } from '../services/api'
+import {
+  controlRobot,
+  getRobotControlStatus,
+  getRobotModeWebSocketUrl,
+} from '../services/api'
 
 
 const MOVEMENT_BUTTONS = [
@@ -64,21 +68,43 @@ export function RobotControlPanel() {
 
   useEffect(() => {
     let active = true
-    const refreshMode = async () => {
-      try {
-        const result = await getRobotMode()
+    let socket = null
+    let reconnectTimer = null
+    let reconnectDelay = 1000
+
+    const connect = () => {
+      socket = new WebSocket(getRobotModeWebSocketUrl())
+      socket.onopen = () => {
+        reconnectDelay = 1000
+        if (active) setModeError('')
+      }
+      socket.onmessage = (event) => {
         if (!active) return
-        setMode(result)
-        setModeError('')
-      } catch (error) {
-        if (active) setModeError(error.message)
+        try {
+          const result = JSON.parse(event.data)
+          if (result.error) {
+            setModeError(result.error)
+          } else {
+            setMode(result)
+            setModeError('')
+          }
+        } catch {
+          setModeError('The robot mode update could not be decoded.')
+        }
+      }
+      socket.onclose = () => {
+        if (!active) return
+        setModeError('Robot mode connection lost. Reconnecting…')
+        reconnectTimer = window.setTimeout(connect, reconnectDelay)
+        reconnectDelay = Math.min(reconnectDelay * 2, 5000)
       }
     }
-    refreshMode()
-    const timer = window.setInterval(refreshMode, 2000)
+
+    connect()
     return () => {
       active = false
-      window.clearInterval(timer)
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close()
     }
   }, [])
 
@@ -90,12 +116,6 @@ export function RobotControlPanel() {
       const result = await controlRobot(action)
       setStatus(result)
       if (action === 'enable') setControlLocked(false)
-      try {
-        setMode(await getRobotMode())
-        setModeError('')
-      } catch (error) {
-        setModeError(error.message)
-      }
     } catch {
       try {
         setStatus(await getRobotControlStatus())

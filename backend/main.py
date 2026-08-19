@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -18,11 +28,22 @@ from backend.robot_control import (
     RobotControlService,
     RobotControlStateError,
 )
-from backend.robot_speech import (
+from backend.robot_audio import (
     MAX_TEXT_LENGTH,
-    RobotSpeechBusyError,
-    RobotSpeechError,
-    RobotSpeechService,
+    RobotAudioBusyError,
+    RobotAudioError,
+    RobotAudioService,
+)
+from backend.robot_services import (
+    RobotServiceBusyError,
+    RobotServiceError,
+    RobotServiceManager,
+    RobotServiceProtectedError,
+)
+from backend.robot_stereo_detection import (
+    RobotStereoDetectionService,
+    RobotStereoError,
+    RobotStereoStateError,
 )
 
 
@@ -37,7 +58,9 @@ async def lifespan(app: FastAPI):
     app.state.robot_camera = RobotCameraService()
     app.state.robot_battery = RobotBatteryService()
     app.state.robot_control = RobotControlService()
-    app.state.robot_speech = RobotSpeechService()
+    app.state.robot_audio = RobotAudioService()
+    app.state.robot_services = RobotServiceManager()
+    app.state.robot_stereo_detection = RobotStereoDetectionService()
     app.state.robot_battery.start()
     if app.state.robot_camera.network_interface:
         app.state.robot_camera.start()
@@ -47,6 +70,8 @@ async def lifespan(app: FastAPI):
         app.state.robot_camera.stop()
         app.state.robot_battery.stop()
         app.state.robot_control.stop()
+        app.state.robot_stereo_detection.stop()
+        app.state.robot_audio.stop()
 
 
 app = FastAPI(
@@ -80,8 +105,8 @@ def robot_camera(request: Request) -> RobotCameraService:
     return request.app.state.robot_camera
 
 
-def robot_speech(request: Request) -> RobotSpeechService:
-    return request.app.state.robot_speech
+def robot_audio(request: Request) -> RobotAudioService:
+    return request.app.state.robot_audio
 
 
 def robot_battery(request: Request) -> RobotBatteryService:
@@ -92,8 +117,23 @@ def robot_control(request: Request) -> RobotControlService:
     return request.app.state.robot_control
 
 
+def robot_services(request: Request) -> RobotServiceManager:
+    return request.app.state.robot_services
+
+
+def robot_stereo_detection(request: Request) -> RobotStereoDetectionService:
+    return request.app.state.robot_stereo_detection
+
+
 class SpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
+
+
+class LedRequest(BaseModel):
+    red: int = Field(ge=0, le=255)
+    green: int = Field(ge=0, le=255)
+    blue: int = Field(ge=0, le=255)
+    keep_on: bool = False
 
 
 class ControlRequest(BaseModel):
@@ -148,6 +188,15 @@ class UpperBodyJointRequest(BaseModel):
     position: float
 
 
+class ServiceSwitchRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    enabled: bool
+
+
+class StereoClassesRequest(BaseModel):
+    classes: list[str] = Field(min_length=1, max_length=30)
+
+
 async def read_image(upload: UploadFile) -> bytes:
     payload = await upload.read(MAX_IMAGE_BYTES + 1)
     if not payload:
@@ -170,7 +219,8 @@ def health(request: Request) -> dict[str, object]:
         "robot_camera": robot_camera(request).status(),
         "robot_battery": robot_battery(request).status(),
         "robot_control": robot_control(request).status(),
-        "robot_speech": robot_speech(request).status(),
+        "robot_audio": robot_audio(request).status(),
+        "robot_stereo_detection": robot_stereo_detection(request).status(),
     }
 
 
@@ -205,9 +255,44 @@ def robot_battery_status(request: Request) -> dict[str, object]:
     return robot_battery(request).status()
 
 
+@app.websocket("/api/robot/battery/ws")
+async def robot_battery_status_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    battery: RobotBatteryService = websocket.app.state.robot_battery
+    try:
+        while True:
+            await websocket.send_json(battery.status())
+            await asyncio.sleep(1.0)
+    except (WebSocketDisconnect, RuntimeError):
+        return
+
+
 @app.get("/api/robot/control/status")
 def robot_control_status(request: Request) -> dict[str, object]:
     return robot_control(request).status()
+
+
+@app.get("/api/robot/services")
+def list_robot_services(request: Request) -> dict[str, object]:
+    try:
+        return robot_services(request).list()
+    except RobotServiceBusyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotServiceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/robot/services/switch")
+def switch_robot_service(
+    request: Request,
+    payload: ServiceSwitchRequest,
+) -> dict[str, object]:
+    try:
+        return robot_services(request).switch(payload.name, payload.enabled)
+    except (RobotServiceBusyError, RobotServiceProtectedError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotServiceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/robot/mode")
@@ -218,6 +303,91 @@ def robot_mode(request: Request) -> dict[str, object]:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except RobotControlError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.websocket("/api/robot/mode/ws")
+async def robot_mode_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    control: RobotControlService = websocket.app.state.robot_control
+    try:
+        while True:
+            try:
+                payload = control.mode()
+                payload["error"] = None
+            except RobotControlBusyError as error:
+                payload = {"error": str(error), "control_busy": True}
+            except RobotControlError as error:
+                payload = {"error": str(error), "control_busy": False}
+            await websocket.send_json(payload)
+            await asyncio.sleep(1.0)
+    except (WebSocketDisconnect, RuntimeError):
+        return
+
+
+@app.get("/api/robot/stereo/status")
+def robot_stereo_status(request: Request) -> dict[str, object]:
+    return robot_stereo_detection(request).status()
+
+
+@app.websocket("/api/robot/stereo/ws")
+async def robot_stereo_status_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    detector: RobotStereoDetectionService = websocket.app.state.robot_stereo_detection
+    try:
+        while True:
+            await websocket.send_json(detector.status())
+            await asyncio.sleep(0.5)
+    except (WebSocketDisconnect, RuntimeError):
+        # RuntimeError is raised when the ASGI server has already closed the
+        # connection before the next status update is sent.
+        return
+
+
+@app.post("/api/robot/stereo/start")
+def start_robot_stereo(request: Request) -> dict[str, object]:
+    detector = robot_stereo_detection(request)
+    try:
+        detector.start()
+    except RobotStereoError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return detector.status()
+
+
+@app.post("/api/robot/stereo/stop")
+def stop_robot_stereo(request: Request) -> dict[str, object]:
+    detector = robot_stereo_detection(request)
+    detector.stop()
+    return detector.status()
+
+
+@app.post("/api/robot/stereo/classes")
+def set_robot_stereo_classes(
+    request: Request,
+    payload: StereoClassesRequest,
+) -> dict[str, object]:
+    try:
+        return robot_stereo_detection(request).set_classes(payload.classes)
+    except RobotStereoStateError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotStereoError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/robot/stereo/stream/{view}")
+def robot_stereo_stream(
+    request: Request,
+    view: Literal["detection", "depth"],
+) -> StreamingResponse:
+    detector = robot_stereo_detection(request)
+    return StreamingResponse(
+        detector.mjpeg_stream(view),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/robot/control")
@@ -311,16 +481,31 @@ def recognize_robot_frame(
 
 @app.get("/api/robot/speech/status")
 def robot_speech_status(request: Request) -> dict[str, object]:
-    return robot_speech(request).status()
+    return robot_audio(request).status()
 
 
 @app.post("/api/robot/speak")
 def speak_on_robot(request: Request, payload: SpeechRequest) -> dict[str, object]:
     try:
-        return robot_speech(request).speak(payload.text)
-    except RobotSpeechBusyError as error:
+        return robot_audio(request).speak(payload.text)
+    except RobotAudioBusyError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    except RobotSpeechError as error:
+    except RobotAudioError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/api/robot/led")
+def set_robot_led(request: Request, payload: LedRequest) -> dict[str, object]:
+    try:
+        return robot_audio(request).set_led(
+            payload.red,
+            payload.green,
+            payload.blue,
+            payload.keep_on,
+        )
+    except RobotAudioBusyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RobotAudioError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 

@@ -26,7 +26,7 @@ backend/
 |-- robot_camera.py
 |-- robot_battery.py
 |-- robot_control.py
-|-- robot_speech.py
+|-- robot_audio.py
 |-- download_models.py
 |-- models/
 |   |-- face_detection_yunet_2023mar.onnx
@@ -88,7 +88,9 @@ During startup it creates exactly one instance of:
 - `RobotCameraService`
 - `RobotBatteryService`
 - `RobotControlService`
-- `RobotSpeechService`
+- `RobotAudioService`
+- `RobotServiceManager`
+- `RobotStereoDetectionService`
 
 During shutdown it stops the camera, battery subscriber, and robot control
 service cleanly.
@@ -169,9 +171,12 @@ It supports these actions:
 Only one control action can run at a time. Busy or invalid robot state
 conditions are returned as HTTP `409` errors by the API layer.
 
-### `robot_speech.py`
+### `robot_audio.py`
 
-Converts English text into audio and plays it through the Unitree speaker.
+Owns the shared Unitree `AudioClient` used for English speech playback and RGB
+LED control.
+LED colors can optionally be kept active by resending the selected RGB value
+at a configurable interval (`ROBOT_LED_KEEPALIVE_SECONDS`, default `0.5`).
 
 It prefers:
 
@@ -184,6 +189,28 @@ PCM before streaming it to the robot.
 
 Speech is limited to `200` characters per request, and only one speech request
 can run at a time.
+
+### `robot_services.py`
+
+Lists the services advertised by the Unitree robot-state API and switches
+unprotected services on or off. Requests use exact service names returned by
+the robot and are serialized so list and switch operations cannot overlap.
+The tested R1 firmware reports service status in reverse (`0` means running),
+so the backend inverts it by default. Set
+`UNITREE_SERVICE_STATUS_INVERTED=0` for firmware that uses normal Boolean
+status values.
+
+### `robot_stereo_detection.py`
+
+Adapts the R1 YOLO-World stereo reference pipeline for the web application. It
+receives the left/right RTP streams, rectifies them, calculates disparity and
+metric depth, runs YOLO-World, and publishes shared MJPEG detection and depth
+views. The pipeline starts only when requested from the Object Distance page.
+The YOLO model defaults to `backend/models/yolov8s-worldv2.pt`. Stereo helpers,
+calibration, and the CLIP encoder default to
+`/home/r1-edu/unitree_sdk2_python/my_script/r1_yolo_world_stereo`. Override
+those locations with `R1_STEREO_SOURCE_DIR`, `R1_STEREO_CALIBRATION`, and
+`R1_YOLO_WORLD_MODEL`; prompts can be set with `R1_YOLO_WORLD_CLASSES`.
 
 ### `common.py`
 
@@ -225,8 +252,18 @@ It is not imported by the running backend.
 | `POST` | `/api/enroll`                | Enroll one person from uploaded images |
 | `GET`  | `/api/robot/status`          | Unitree camera configuration and capture state |
 | `GET`  | `/api/robot/battery`         | Latest Unitree battery telemetry |
+| `WS`   | `/api/robot/battery/ws`      | Push live Unitree battery telemetry |
 | `GET`  | `/api/robot/control/status`  | Current locomotion-control service status |
+| `GET`  | `/api/robot/services`        | List robot services and their on/off status |
+| `POST` | `/api/robot/services/switch` | Turn an unprotected robot service on or off |
+| `GET`  | `/api/robot/stereo/status`   | Stereo pipeline status, metrics, and detections |
+| `WS`   | `/api/robot/stereo/ws`       | Push live stereo status, metrics, and detections |
+| `POST` | `/api/robot/stereo/start`    | Start stereo capture and object detection |
+| `POST` | `/api/robot/stereo/stop`     | Stop stereo capture and object detection |
+| `POST` | `/api/robot/stereo/classes`  | Replace the YOLO-World object prompts |
+| `GET`  | `/api/robot/stereo/stream/{view}` | Stream the detection or depth monitor |
 | `GET`  | `/api/robot/mode`            | Current Unitree FSM mode |
+| `WS`   | `/api/robot/mode/ws`         | Push current Unitree FSM mode |
 | `POST` | `/api/robot/control`         | Send one bounded locomotion command |
 | `POST` | `/api/robot/upper-body`      | Set one upper-body joint target in radians |
 | `POST` | `/api/robot/connect`         | Start the shared Unitree camera client |
@@ -235,6 +272,7 @@ It is not imported by the running backend.
 | `POST` | `/api/robot/recognize`       | Recognize the newest Unitree frame |
 | `GET`  | `/api/robot/speech/status`   | Report speech tool and busy status |
 | `POST` | `/api/robot/speak`           | Convert English text and play it |
+| `POST` | `/api/robot/led`             | Set the robot LED strip RGB color |
 
 Interactive API docs are available while the backend is running:
 

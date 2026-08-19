@@ -3,6 +3,8 @@ import drumsLogo from '../../photos/DRUMS_logo.png'
 
 const NAV_ITEMS = [
   ['recognize', 'Console'],
+  ['object-distance', 'Object Distance'],
+  ['services', 'System Services'],
   ['enroll', 'Enroll'],
 ]
 
